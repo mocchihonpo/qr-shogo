@@ -94,6 +94,7 @@ body.scanning #result{display:none}
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
 #camBox video{max-height:34vh}
 .ov{position:absolute;left:0;right:0;top:0;padding:10px 12px;color:#fff;font-weight:700;font-size:18px;line-height:1.35;background:rgba(0,0,0,.6);text-align:center}
+.diag{position:absolute;left:0;right:0;bottom:0;padding:4px 8px;font-size:11px;color:#fff;background:rgba(0,0,0,.5);font-family:var(--f-code)}
 .ov small{display:block;font-size:13px;font-weight:400;opacity:.9}
 .regbar{display:grid;grid-template-columns:1.4fr repeat(5,1fr);gap:6px}
 .regbar button{min-height:48px;padding:4px;font-size:15px;flex-direction:column;gap:0;line-height:1.15}
@@ -127,6 +128,7 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
       <video id="video" playsinline muted></video>
       <div class="frame"></div>
       <div class="ov" id="ov"></div>
+      <div class="diag" id="diag"></div>
     </div>
     <div class="regbar" id="regbar"></div>
     <div id="result" role="status" aria-live="polite">
@@ -222,8 +224,8 @@ function updateOv(msg,bg){
   const ov=$("ov"); if(!ov) return;
   clearTimeout(ovTimer);
   if(msg){ ov.innerHTML=msg; ov.style.background=bg; ovTimer=setTimeout(()=>updateOv(),2500); return; }
-  if(armed!==null){ ov.innerHTML=`${armed+1}番に登録します<small>伝票のQRを映してください</small>`; ov.style.background=SLOTS[armed].color; }
-  else { ov.innerHTML=`照合中<small>品物のQRを映してください</small>`; ov.style.background="rgba(0,0,0,.6)"; }
+  if(armed!==null){ ov.innerHTML=`${armed+1}番に登録します<small>伝票のQRを枠いっぱいに映してください</small>`; ov.style.background=SLOTS[armed].color; }
+  else { ov.innerHTML=`照合中<small>品物のQRを枠いっぱいに映してください</small>`; ov.style.background="rgba(0,0,0,.6)"; }
 }
 function show(bg, big, hint, code){
   const r = $("result"); r.style.background = bg;
@@ -388,30 +390,52 @@ const work = document.createElement("canvas");
 async function startLive(){
   audio();
   try{
-    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"},audio:false});
+    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1920},height:{ideal:1080}},audio:false});
   }catch(err){
-    $("liveMsg").hidden = false;
-    $("liveMsg").textContent = "この画面ではカメラの連続読み取りが使えません。「写真で読み取る」を使ってください。";
-    $("liveBtn").disabled = true; return;
+    try{ stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"},audio:false}); }
+    catch(err2){
+      $("liveMsg").hidden = false;
+      $("liveMsg").textContent = "カメラを起動できませんでした。カメラの使用を「許可」にしてから、もう一度押してください。";
+      return;
+    }
   }
-  const v = $("video"); v.srcObject = stream; await v.play().catch(()=>{});
   $("camBox").hidden = false; $("stopBtn").hidden = false; $("liveBtn").hidden = true;
-  document.body.classList.add("scanning"); updateOv();
-  running = true;
-  show("var(--idle)","読み取り中","QRを枠の中に映してください","");
+  document.body.classList.add("scanning");
+  const v = $("video"); v.setAttribute("autoplay",""); v.setAttribute("playsinline",""); v.muted = true;
+  v.srcObject = stream; await v.play().catch(()=>{});
+  running = true; tries = 0; updateOv();
   loop();
 }
+let tries = 0, flip = false;
 async function loop(){
   if(!running) return;
   const v = $("video");
   if (v.readyState >= 2 && v.videoWidth){
-    const s = Math.min(1, 800/Math.max(v.videoWidth,v.videoHeight));
-    work.width = Math.round(v.videoWidth*s); work.height = Math.round(v.videoHeight*s);
-    work.getContext("2d",{willReadFrequently:true}).drawImage(v,0,0,work.width,work.height);
-    const code = await decodeCanvas(work);
+    const W = v.videoWidth, H = v.videoHeight;
+    let code = null;
+    try{
+      if (flip){
+        // 中央部分を高解像度で切り出して解析（小さいQR向け）
+        const cw = Math.round(Math.min(W,H)*0.7), sx = Math.round((W-cw)/2), sy = Math.round((H-cw)/2);
+        const t = Math.min(1, 900/cw);
+        work.width = Math.round(cw*t); work.height = Math.round(cw*t);
+        work.getContext("2d",{willReadFrequently:true}).drawImage(v,sx,sy,cw,cw,0,0,work.width,work.height);
+      } else {
+        const t = Math.min(1, 900/Math.max(W,H));
+        work.width = Math.round(W*t); work.height = Math.round(H*t);
+        work.getContext("2d",{willReadFrequently:true}).drawImage(v,0,0,work.width,work.height);
+      }
+      flip = !flip;
+      code = await decodeCanvas(work);
+    }catch(e){}
+    tries++;
+    const dg = $("diag");
+    if (dg) dg.textContent = `カメラ ${W}×${H}　解析 ${tries}回　${detector?"標準":"jsQR"}${(!detector&&!window.jsQR)?"（読込失敗）":""}`;
     if (code) handle(code,true);
+  } else {
+    const dg = $("diag"); if (dg) dg.textContent = "カメラ映像を待っています…";
   }
-  setTimeout(loop, 150);
+  setTimeout(loop, 120);
 }
 function stopLive(){
   running = false; if(stream) stream.getTracks().forEach(t=>t.stop()); stream = null;
