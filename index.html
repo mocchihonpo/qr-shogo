@@ -84,7 +84,13 @@ button.small{min-height:40px;padding:8px 10px;font-size:13px;font-weight:700}
 section{display:flex;flex-direction:column;gap:10px}
 @media (prefers-reduced-motion: reduce){#result.flash{animation:none}}
 
-.stage{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);display:flex;flex-direction:column;gap:8px;padding-block:6px}
+.stage{display:flex;flex-direction:column;gap:8px}
+body.scanning{overflow:hidden}
+body.scanning .stage{position:fixed;inset:0;z-index:20;background:var(--bg);padding-top:calc(env(safe-area-inset-top,0px) + 8px);padding-bottom:calc(env(safe-area-inset-bottom,0px) + 10px);padding-left:max(12px,env(safe-area-inset-left,0px));padding-right:max(12px,env(safe-area-inset-right,0px))}
+body.scanning #camBox{flex:1;min-height:0}
+body.scanning #camBox video{height:100%;max-height:none}
+body.scanning #result{display:none}
+.stage #stopBtn{min-height:44px}
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
 #camBox video{max-height:34vh}
 .ov{position:absolute;left:0;right:0;top:0;padding:10px 12px;color:#fff;font-weight:700;font-size:18px;line-height:1.35;background:rgba(0,0,0,.6);text-align:center}
@@ -128,8 +134,8 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
       <div class="hint" id="rHint">最初に一度押すと音が鳴るようになります</div>
       <div class="code" id="rCode"></div>
     </div>
+    <button id="stopBtn" hidden>カメラを閉じる</button>
   </div>
-  <button id="stopBtn" hidden>カメラを止める</button>
 
   <section>
     <h2>照合リスト（伝票側のQR）</h2>
@@ -390,6 +396,7 @@ async function startLive(){
   }
   const v = $("video"); v.srcObject = stream; await v.play().catch(()=>{});
   $("camBox").hidden = false; $("stopBtn").hidden = false; $("liveBtn").hidden = true;
+  document.body.classList.add("scanning"); updateOv();
   running = true;
   show("var(--idle)","読み取り中","QRを枠の中に映してください","");
   loop();
@@ -409,6 +416,7 @@ async function loop(){
 function stopLive(){
   running = false; if(stream) stream.getTracks().forEach(t=>t.stop()); stream = null;
   $("camBox").hidden = true; $("stopBtn").hidden = true; $("liveBtn").hidden = false;
+  document.body.classList.remove("scanning");
 }
 if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) { $("liveBtn").disabled = true; }
 $("liveBtn").onclick = startLive;
