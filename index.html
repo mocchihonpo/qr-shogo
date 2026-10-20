@@ -284,7 +284,7 @@ async function decodeCanvas(cv){
   if (detector){ try{ const r = await detector.detect(cv); if (r && r.length) return r[0].rawValue; }catch(e){} }
   if (window.jsQR){
     const d = cv.getContext("2d",{willReadFrequently:true}).getImageData(0,0,cv.width,cv.height);
-    const r = jsQR(d.data, d.width, d.height, {inversionAttempts:"attemptBoth"});
+    const r = jsQR(d.data, d.width, d.height, {inversionAttempts:"dontInvert"});
     if (r) return r.data;
   }
   return null;
@@ -335,7 +335,7 @@ async function loop(){
     $("seen").hidden = !fresh;
     if (fresh) $("seen").textContent = "読めています：" + seenCode;
   }
-  setTimeout(loop, 120);
+  setTimeout(loop, 60);
 }
 $("tapStart").onclick = startCam;
 document.addEventListener("visibilitychange", ()=>{ if(!document.hidden && ac) ac.resume(); });
