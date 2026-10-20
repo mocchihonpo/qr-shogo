@@ -6,6 +6,7 @@
 <meta name="theme-color" content="#121512">
 <title>QR照合ブザー</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/zxing-wasm@2.2.4/dist/iife/reader/index.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 <style>
 /* Layout: phone app — top bar, one tab's content filling the screen, tab bar at the bottom (登録 / 比較 / 履歴) */
@@ -280,11 +281,28 @@ function handle(code, fromCam){
 /* ---------- QR解析 ---------- */
 let detector = null;
 try{ if ("BarcodeDetector" in window) detector = new BarcodeDetector({formats:["qr_code"]}); }catch(e){ detector = null; }
+let zxOK = null;  // 高感度エンジン（ZXing）が使えるか
 async function decodeCanvas(cv){
-  if (detector){ try{ const r = await detector.detect(cv); if (r && r.length) return r[0].rawValue; }catch(e){} }
+  const W = cv.width, H = cv.height, cx = W/2, cy = H/2;
+  const nearest = list => list.sort((p,q)=>p.d-q.d)[0];   // 画面の中央に一番近いQRを選ぶ
+  if (detector){
+    try{
+      const r = await detector.detect(cv);
+      if (r && r.length) return nearest(r.map(x=>{ const bb=x.boundingBox; return {t:x.rawValue, d:Math.hypot(bb.x+bb.width/2-cx, bb.y+bb.height/2-cy)}; })).t;
+    }catch(e){}
+  }
+  const img = cv.getContext("2d",{willReadFrequently:true}).getImageData(0,0,W,H);
+  if (window.ZXingWASM && zxOK !== false){
+    try{
+      const r = await ZXingWASM.readBarcodes(img, {formats:["QRCode"], tryHarder:true, maxNumberOfSymbols:4});
+      zxOK = true;
+      const ok = (r||[]).filter(x=>x.isValid && x.text);
+      if (ok.length) return nearest(ok.map(x=>{ const p=x.position; const mx=(p.topLeft.x+p.topRight.x+p.bottomLeft.x+p.bottomRight.x)/4, my=(p.topLeft.y+p.topRight.y+p.bottomLeft.y+p.bottomRight.y)/4; return {t:x.text, d:Math.hypot(mx-cx,my-cy)}; })).t;
+      return null;
+    }catch(e){ zxOK = false; }
+  }
   if (window.jsQR){
-    const d = cv.getContext("2d",{willReadFrequently:true}).getImageData(0,0,cv.width,cv.height);
-    const r = jsQR(d.data, d.width, d.height, {inversionAttempts:"dontInvert"});
+    const r = jsQR(img.data, W, H, {inversionAttempts:"dontInvert"});
     if (r) return r.data;
   }
   return null;
@@ -317,19 +335,21 @@ async function loop(){
     let code = null;
     try{
       const ctx = work.getContext("2d",{willReadFrequently:true});
-      // 白い枠の内側だけを解析する（隣のQRを拾わないように）
+      // 画面に見えている範囲（と、交互に枠の内側を拡大）を解析する
       const box = $("cam"), fr = box.querySelector(".frame");
       const sc = Math.max(box.clientWidth/W, box.clientHeight/H);
-      const side = Math.min(W, H, Math.round(fr.offsetWidth/sc));
-      const sx = Math.round((W-side)/2), sy = Math.round((H-side)/2);
-      const k = Math.min(1, (flip?900:600)/side);
-      work.width = Math.round(side*k); work.height = work.width;
-      ctx.drawImage(v,sx,sy,side,side,0,0,work.width,work.height);
+      let cw, ch;
+      if (flip){ cw = ch = Math.min(W, H, Math.round(fr.offsetWidth*1.15/sc)); }
+      else { cw = Math.min(W, Math.round(box.clientWidth/sc)); ch = Math.min(H, Math.round(box.clientHeight/sc)); }
+      const sx = Math.round((W-cw)/2), sy = Math.round((H-ch)/2);
+      const k = Math.min(1, (flip?1000:1100)/Math.max(cw,ch));
+      work.width = Math.round(cw*k); work.height = Math.round(ch*k);
+      ctx.drawImage(v,sx,sy,cw,ch,0,0,work.width,work.height);
       flip = !flip;
       code = await decodeCanvas(work);
     }catch(e){}
     tries++;
-    $("diag").textContent = `カメラ ${W}×${H}　解析 ${tries}回　${detector?"標準":"jsQR"}${(!detector&&!window.jsQR)?"（読込失敗）":""}`;
+    $("diag").textContent = `カメラ ${W}×${H}　解析 ${tries}回　${detector?"標準":zxOK?"ZXing":window.ZXingWASM&&zxOK===null?"ZXing準備中":"jsQR"}`;
     if (code){ seenCode = code.trim(); seenAt = Date.now(); handle(code, true); }
     const fresh = seenCode && Date.now()-seenAt < 1200;
     $("seen").hidden = !fresh;
