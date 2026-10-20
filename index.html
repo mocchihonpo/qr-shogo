@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>QR照合ブザー</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<style>
+/* Layout: one narrow column for a phone held in one hand — result panel first, scan buttons, then the five registered codes */
+:root{
+  --bg:#eef0ec; --panel:#ffffff; --fg:#1b1f1a; --muted:#5d665b; --line:#d3d8cf;
+  --accent:#1f4d3a; --accent-fg:#ffffff;
+  --ok:#1d7a3c; --ng:#b3261e; --idle:#6b7468;
+  --s1:#1d7a3c; --s2:#1f5fa8; --s3:#8a4bb0; --s4:#c26a00; --s5:#0f8a8a;
+  --f-ui:"BIZ UDPGothic","Hiragino Sans","Noto Sans JP",system-ui,sans-serif;
+  --f-code:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#121512; --panel:#1b1f1b; --fg:#e8ece6; --muted:#9aa396; --line:#30362f;
+  --accent:#7fc8a2; --accent-fg:#0d1a12;
+  --ok:#3fbf6a; --ng:#ef5b50; --idle:#7e877a;
+  --s1:#3fbf6a; --s2:#5e9ff0; --s3:#bb85e0; --s4:#f0a040; --s5:#3cc7c7; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#121512; --panel:#1b1f1b; --fg:#e8ece6; --muted:#9aa396; --line:#30362f;
+  --accent:#7fc8a2; --accent-fg:#0d1a12;
+  --ok:#3fbf6a; --ng:#ef5b50; --idle:#7e877a;
+  --s1:#3fbf6a; --s2:#5e9ff0; --s3:#bb85e0; --s4:#f0a040; --s5:#3cc7c7; color-scheme:dark}
+html,body{background:var(--bg);color:var(--fg)}
+body{font-family:var(--f-ui);font-size:15px;line-height:1.55}
+.wrap{max-width:560px;margin:0 auto;padding-block:16px 40px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:18px}
+header{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap}
+h1{font-size:22px;margin:0;letter-spacing:.02em;text-wrap:balance}
+.sub{color:var(--muted);font-size:13px}
+h2{font-size:13px;margin:0;color:var(--muted);letter-spacing:.08em}
+
+/* Result panel */
+#result{border-radius:14px;padding:22px 18px;background:var(--idle);color:#fff;display:flex;flex-direction:column;gap:6px;min-height:150px;justify-content:center;transition:background .15s}
+#result .big{font-size:34px;font-weight:700;line-height:1.2}
+#result .code{font-family:var(--f-code);font-size:14px;opacity:.9;word-break:break-all}
+#result .hint{font-size:14px;opacity:.9}
+#result.flash{animation:flash .35s ease-out}
+@keyframes flash{from{transform:scale(1.03)}to{transform:scale(1)}}
+
+/* Buttons */
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+button,.btn{font:inherit;font-weight:700;border-radius:10px;border:1.5px solid var(--line);background:var(--panel);color:var(--fg);padding:14px 12px;cursor:pointer;text-align:center;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:52px}
+.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+button:focus-visible,.btn:focus-within{outline:3px solid var(--accent);outline-offset:2px}
+button.small{min-height:40px;padding:8px 10px;font-size:13px;font-weight:700}
+.full{grid-column:1/-1}
+#fileIn{position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}
+.dl li{cursor:pointer}
+.dl li:hover{border-color:var(--accent)}
+.dl .go{font-weight:700;color:var(--accent);font-size:12px}
+
+#camBox{position:relative;border-radius:14px;overflow:hidden;background:#000}
+#camBox video{width:100%;display:block;max-height:46vh;object-fit:cover}
+#camBox .frame{position:absolute;inset:18% 22%;border:3px solid rgba(255,255,255,.85);border-radius:12px;pointer-events:none}
+.note{font-size:13px;color:var(--muted)}
+.warn{font-size:13px;color:var(--ng)}
+
+/* Slots */
+.slots{display:flex;flex-direction:column;gap:10px}
+.slot{background:var(--panel);border:1.5px solid var(--line);border-radius:12px;padding:12px;display:grid;grid-template-columns:auto 1fr;gap:4px 12px;align-items:center}
+.slot.armed{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 30%,transparent)}
+.num{width:44px;height:44px;border-radius:10px;color:#fff;font-weight:700;font-size:22px;display:flex;align-items:center;justify-content:center;grid-row:span 2;font-family:var(--f-code)}
+.meta{min-width:0;display:flex;flex-direction:column}
+.snd{font-weight:700}
+.val{font-family:var(--f-code);font-size:13px;color:var(--muted);word-break:break-all}
+.val.empty{font-family:var(--f-ui)}
+.row{grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.row button{flex:1 1 auto}
+.manual{grid-column:1/-1;display:flex;gap:8px;margin-top:6px}
+.manual input{flex:1;min-width:0;font:inherit;font-family:var(--f-code);padding:8px 10px;border-radius:8px;border:1.5px solid var(--line);background:var(--bg);color:var(--fg)}
+
+.ngcard{background:var(--panel);border:1.5px solid var(--line);border-radius:12px;padding:12px;display:flex;align-items:center;gap:12px;justify-content:space-between}
+
+/* Log */
+.log{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.log li{display:grid;grid-template-columns:auto auto 1fr;gap:10px;align-items:center;font-size:13px;background:var(--panel);border-radius:8px;padding:8px 10px;border:1px solid var(--line)}
+.log .t{font-family:var(--f-code);color:var(--muted);font-variant-numeric:tabular-nums}
+.log .tag{font-weight:700;padding:2px 8px;border-radius:6px;color:#fff;font-size:12px}
+.log .c{font-family:var(--f-code);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+section{display:flex;flex-direction:column;gap:10px}
+@media (prefers-reduced-motion: reduce){#result.flash{animation:none}}
+</style>
+
+</head><body>
+<div class="wrap">
+  <header>
+    <h1>QR照合ブザー</h1>
+    <span class="sub">登録したQRと一致すると番号ごとに違う音が鳴ります</span>
+  </header>
+
+  <div id="result" role="status" aria-live="polite">
+    <div class="big" id="rBig">開始ボタンを押してください</div>
+    <div class="hint" id="rHint">最初に一度タップすると音が鳴るようになります</div>
+    <div class="code" id="rCode"></div>
+  </div>
+
+  <div class="actions">
+    <button class="primary full" id="startBtn">開始（音をオンにする）</button>
+    <button id="liveBtn" class="primary full">カメラで読み取る</button>
+    <button id="photoBtn" class="full">写真・ファイルから</button>
+    <button id="driveBtn" class="full" hidden>Googleドライブの画像から読み取る</button>
+    <input type="file" id="fileIn" accept="image/*">
+  </div>
+  
+
+  <section id="driveBox" hidden>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+      <h2>ドライブの画像（新しい順）</h2>
+      <span style="display:flex;gap:8px"><button class="small" id="driveReload">再読み込み</button><button class="small" id="driveClose">閉じる</button></span>
+    </div>
+    <div class="manual" style="margin:0"><input id="driveKw" placeholder="ファイル名の一部で絞り込み（空欄なら全部）" aria-label="ファイル名で絞り込み"><button class="small" id="driveSearch">検索</button></div>
+    <div id="driveMsg" class="note"></div>
+    <ul class="log dl" id="driveList"></ul>
+  </section>
+  <div id="liveMsg" class="warn" hidden></div>
+
+  <div id="camBox" hidden>
+    <video id="video" playsinline muted></video>
+    <div class="frame"></div>
+  </div>
+  <button id="stopBtn" hidden>カメラを止める</button>
+
+  <section>
+    <h2>照合リスト（伝票側のQR）</h2>
+    <p class="note" id="armNote">「読み取って登録」を押してから伝票のQRをカメラに映すと、その番号に登録されます。押さずに映すと照合になります。</p>
+    <div class="slots" id="slots"></div>
+    <div class="ngcard">
+      <div><div class="snd">不一致：ブー</div><div class="val empty">どの番号とも合わないとき</div></div>
+      <button class="small" data-test="ng">音を試す</button>
+    </div>
+    <button id="clearAll">全部の登録を消す</button>
+    <div id="clearConfirm" hidden class="ngcard">
+      <span>5件すべて消します。よろしいですか？</span>
+      <span style="display:flex;gap:8px"><button class="small" id="clearYes">消す</button><button class="small" id="clearNo">やめる</button></span>
+    </div>
+  </section>
+
+  <section>
+    <h2>読み取り履歴</h2>
+    <ul class="log" id="log"><li><span class="t">--:--</span><span class="tag" style="background:var(--idle)">待機</span><span class="c">まだ読み取っていません</span></li></ul>
+  </section>
+</div>
+
+<script>
+const SLOTS = [
+  {name:"ピンポン", color:"var(--s1)"},
+  {name:"ピー",     color:"var(--s2)"},
+  {name:"ピロリン", color:"var(--s3)"},
+  {name:"ポンポン", color:"var(--s4)"},
+  {name:"ピピピ",   color:"var(--s5)"},
+];
+const KEY = "qr-shogo-codes-v1";
+let codes = ["","","","",""];
+try { const s = JSON.parse(localStorage.getItem(KEY)||"null"); if (Array.isArray(s)) codes = SLOTS.map((_,i)=>s[i]||""); } catch(e){}
+function save(){ try{ localStorage.setItem(KEY, JSON.stringify(codes)); }catch(e){} }
+
+/* ---------- Sound ---------- */
+let ac = null;
+function audio(){ if(!ac){ const C = window.AudioContext||window.webkitAudioContext; if(C) ac = new C(); } if(ac && ac.state==="suspended") ac.resume(); return ac; }
+function tone(freq, start, dur, type="sine", vol=.35){
+  const a = audio(); if(!a) return;
+  const t = a.currentTime + start, o = a.createOscillator(), g = a.createGain();
+  o.type = type; o.frequency.setValueAtTime(freq, t);
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol, t+.01);
+  g.gain.setValueAtTime(vol, t+dur-.04); g.gain.linearRampToValueAtTime(0, t+dur);
+  o.connect(g).connect(a.destination); o.start(t); o.stop(t+dur+.02);
+}
+const SOUNDS = [
+  ()=>{ tone(1047,0,.28,"sine",.4); tone(784,.3,.5,"sine",.4); },               // 1 ピンポン
+  ()=>{ tone(2000,0,.5,"square",.18); },                                       // 2 ピー
+  ()=>{ tone(784,0,.12); tone(988,.12,.12); tone(1319,.24,.3); },               // 3 ピロリン
+  ()=>{ tone(523,0,.15,"triangle",.5); tone(523,.22,.15,"triangle",.5); },      // 4 ポンポン
+  ()=>{ for(let i=0;i<3;i++) tone(1568,i*.13,.08,"square",.18); },              // 5 ピピピ
+];
+function soundNG(){ tone(140,0,.7,"sawtooth",.3); tone(147,0,.7,"sawtooth",.22); }
+function vibrate(p){ try{ navigator.vibrate && navigator.vibrate(p); }catch(e){} }
+
+/* ---------- UI ---------- */
+const $ = id => document.getElementById(id);
+let armed = null;
+function renderSlots(){
+  $("slots").innerHTML = SLOTS.map((s,i)=>`
+    <div class="slot ${armed===i?"armed":""}">
+      <div class="num" style="background:${s.color}">${i+1}</div>
+      <div class="meta"><span class="snd">${i+1}番：${s.name}</span>
+        <span class="val ${codes[i]?"":"empty"}" id="val${i}"></span></div>
+      <div class="row">
+        <button class="small" data-arm="${i}">${armed===i?"読み取り待ち…（取消）":"読み取って登録"}</button>
+        <button class="small" data-test="${i}">音を試す</button>
+        <button class="small" data-del="${i}" ${codes[i]?"":"disabled"}>消す</button>
+      </div>
+      <div class="manual"><input id="man${i}" placeholder="手入力でも登録できます" aria-label="${i+1}番の内容を手入力"><button class="small" data-man="${i}">登録</button></div>
+    </div>`).join("");
+  codes.forEach((c,i)=>{ $("val"+i).textContent = c || "未登録"; });
+  $("armNote").textContent = armed===null
+    ? "「読み取って登録」を押してから伝票のQRをカメラに映すと、その番号に登録されます。押さずに映すと照合になります。"
+    : `次に読み取ったQRを ${armed+1}番（${SLOTS[armed].name}）に登録します。カメラに伝票のQRを映してください。`;
+}
+function show(bg, big, hint, code){
+  const r = $("result"); r.style.background = bg;
+  $("rBig").textContent = big; $("rHint").textContent = hint||""; $("rCode").textContent = code||"";
+  r.classList.remove("flash"); void r.offsetWidth; r.classList.add("flash");
+}
+function addLog(color, tag, code){
+  const li = document.createElement("li"), d = new Date();
+  li.innerHTML = `<span class="t"></span><span class="tag"></span><span class="c"></span>`;
+  li.children[0].textContent = d.toTimeString().slice(0,8);
+  li.children[1].textContent = tag; li.children[1].style.background = color;
+  li.children[2].textContent = code;
+  const log = $("log"); if (log.dataset.started!=="1"){ log.innerHTML=""; log.dataset.started="1"; }
+  log.prepend(li); while(log.children.length>30) log.lastChild.remove();
+}
+
+/* ---------- Core: what to do with a scanned code ---------- */
+let lastCode = "", lastAt = 0;
+function handle(code, fromLive){
+  code = (code||"").trim(); if(!code) return;
+  const now = Date.now();
+  if (fromLive && code===lastCode && now-lastAt < 2500) return;   // 同じQRの連続反応を防ぐ
+  lastCode = code; lastAt = now;
+
+  if (armed !== null){
+    const dup = codes.findIndex((c,i)=>c===code && i!==armed);
+    if (dup>=0){ soundNG(); vibrate([200,80,200]); show("var(--ng)","登録できません",`このQRはすでに ${dup+1}番に登録されています`,code); return; }
+    const i = armed; codes[i] = code; armed = null; save(); renderSlots();
+    SOUNDS[i](); vibrate(120);
+    show(SLOTS[i].color, `${i+1}番に登録しました`, `音：${SLOTS[i].name}`, code);
+    addLog(SLOTS[i].color, `登録${i+1}`, code); return;
+  }
+  const i = codes.indexOf(code);
+  if (i>=0){
+    SOUNDS[i](); vibrate(120);
+    show(SLOTS[i].color, `${i+1}番と一致`, `${SLOTS[i].name}`, code);
+    addLog(SLOTS[i].color, `一致${i+1}`, code);
+  } else {
+    soundNG(); vibrate([300,100,300]);
+    show("var(--ng)", "不一致", codes.some(Boolean) ? "登録したどのQRとも合いません" : "まだ何も登録されていません", code);
+    addLog("var(--ng)", "不一致", code);
+  }
+}
+
+/* ---------- Decoding ---------- */
+let detector = null;
+try { if ("BarcodeDetector" in window) detector = new BarcodeDetector({formats:["qr_code"]}); } catch(e){ detector = null; }
+async function decodeCanvas(cv){
+  if (detector){ try{ const r = await detector.detect(cv); if (r && r.length) return r[0].rawValue; }catch(e){} }
+  if (window.jsQR){
+    const ctx = cv.getContext("2d", {willReadFrequently:true});
+    const d = ctx.getImageData(0,0,cv.width,cv.height);
+    const r = jsQR(d.data, d.width, d.height, {inversionAttempts:"attemptBoth"});
+    if (r) return r.data;
+  }
+  return null;
+}
+
+/* Photo mode — works everywhere, including inside this page on claude.ai */
+$("fileIn").addEventListener("change", async e=>{
+  const f = e.target.files && e.target.files[0]; e.target.value = ""; if(!f) return;
+  audio();
+  show("var(--idle)","読み取り中…","","");
+  await decodeBlob(f);
+});
+async function decodeBlob(f){
+  try{
+    const bmp = await createImageBitmap(f);
+    const scale = Math.min(1, 1400/Math.max(bmp.width,bmp.height));
+    const cv = document.createElement("canvas");
+    cv.width = Math.round(bmp.width*scale); cv.height = Math.round(bmp.height*scale);
+    cv.getContext("2d").drawImage(bmp,0,0,cv.width,cv.height);
+    const code = await decodeCanvas(cv);
+    if (code) handle(code,false);
+    else show("var(--idle)","QRが見つかりません","もう少し近づけて、ピントを合わせて撮ってください","");
+  }catch(err){ show("var(--idle)","画像を読めませんでした","別の画像で試してください",""); }
+}
+$("photoBtn").onclick = ()=>{ audio(); $("fileIn").click(); };
+
+/* ---------- Google Drive ---------- */
+const DRIVE = "Google Drive";
+let mcp = null, mcpTried = false;
+async function getMcp(){
+  if (!mcpTried){ mcpTried = true; try{ mcp = await window.claude?.use?.("mcp") ?? null; }catch(e){ mcp = null; } }
+  return mcp;
+}
+function driveErr(e){
+  const c = e && e.code;
+  if (c==="server_not_connected") return "Googleドライブがつながっていません。claude.ai の 設定 → コネクタ で Google Drive を追加してください。";
+  if (c==="needs_reauth") return "Googleドライブの接続が切れています。claude.ai の 設定 → コネクタ で再接続してください。";
+  if (c==="not_in_manifest"||c==="approval_required") return "Googleドライブの利用が許可されていません。もう一度ボタンを押して「許可」を選んでください。";
+  if (c==="server_unavailable") return "Googleドライブが混み合っています。少し待ってから再読み込みしてください。";
+  if (c==="not_granted"||c==="capability_disabled"||c==="capability_removed") return "この画面ではGoogleドライブを使えません。claude.ai でこのページを開いてください。";
+  return "Googleドライブから読み込めませんでした（" + (c||"不明なエラー") + "）。";
+}
+function payloadOf(r){
+  if (!r) return null;
+  if (r.payload && typeof r.payload==="object") return r.payload;
+  for (const b of (r.content||[])){
+    if (b.type==="text"){ try{ return JSON.parse(b.text); }catch(e){} }
+  }
+  return null;
+}
+async function loadDrive(){
+  $("driveBox").hidden = false;
+  const list = $("driveList"); list.innerHTML = "";
+  $("driveMsg").textContent = "読み込み中…";
+  const m = await getMcp();
+  if (!m){ $("driveMsg").textContent = "この画面ではGoogleドライブを使えません。claude.ai でこのページを開いてください。"; return; }
+  const since = new Date(Date.now()-30*86400000).toISOString().replace(/\.\d+Z$/,"Z");
+  let q = `mimeType contains 'image/' and modifiedTime > '${since}'`;
+  const kw = $("driveKw").value.trim().replace(/'/g,"\\'");
+  if (kw) q += ` and title contains '${kw}'`;
+  try{
+    const r = await m.callTool(DRIVE,"search_files",{query:q,pageSize:30,excludeContentSnippets:true},{cache:false});
+    const files = ((payloadOf(r)||{}).files||[]).sort((a,b)=>(b.modifiedTime||"").localeCompare(a.modifiedTime||""));
+    if (!files.length){ $("driveMsg").textContent = "最近30日の画像が見つかりませんでした。"; return; }
+    $("driveMsg").textContent = "読み取りたい画像をタップしてください（"+files.length+"件）";
+    for (const f of files){
+      const li = document.createElement("li");
+      li.innerHTML = `<span class="t"></span><span class="go">読む</span><span class="c"></span>`;
+      const d = new Date(f.modifiedTime||f.createdTime||0);
+      li.children[0].textContent = `${d.getMonth()+1}/${d.getDate()} ${d.toTimeString().slice(0,5)}`;
+      li.children[2].textContent = f.title||f.id;
+      li.tabIndex = 0;
+      li.onclick = ()=>readDrive(f, li);
+      li.onkeydown = e=>{ if(e.key==="Enter") readDrive(f, li); };
+      list.appendChild(li);
+    }
+  }catch(e){ $("driveMsg").textContent = driveErr(e); }
+}
+let driveBusy = false;
+async function readDrive(f, li){
+  if (driveBusy) return; driveBusy = true; audio();
+  li.querySelector(".go").textContent = "読込中";
+  show("var(--idle)","ドライブから読み込み中…", f.title||"", "");
+  try{
+    const r = await mcp.callTool(DRIVE,"download_file_content",{fileId:f.id},{cache:false});
+    const p = payloadOf(r)||{};
+    let b64 = p.content, mime = p.mimeType || f.mimeType || "image/jpeg";
+    if (!b64){ const img = (r.content||[]).find(b=>b.type==="image"); if(img){ b64 = img.data; mime = img.mimeType||mime; } }
+    if (!b64) throw {code:"empty"};
+    const bin = atob(b64), u = new Uint8Array(bin.length);
+    for (let i=0;i<bin.length;i++) u[i] = bin.charCodeAt(i);
+    await decodeBlob(new Blob([u],{type:mime}));
+  }catch(e){
+    show("var(--idle)","読み込めませんでした", e.code==="empty" ? "画像の中身を受け取れませんでした" : driveErr(e), "");
+  }
+  li.querySelector(".go").textContent = "読む"; driveBusy = false;
+}
+$("driveBtn").onclick = ()=>{ audio(); loadDrive(); };
+$("driveReload").onclick = loadDrive;
+$("driveSearch").onclick = loadDrive;
+$("driveClose").onclick = ()=>{ $("driveBox").hidden = true; };
+
+/* Live camera mode — continuous scanning */
+let stream = null, running = false;
+const work = document.createElement("canvas");
+async function startLive(){
+  audio();
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"},audio:false});
+  }catch(err){
+    $("liveMsg").hidden = false;
+    $("liveMsg").textContent = "この画面ではカメラの連続読み取りが使えません。「写真で読み取る」を使ってください。";
+    $("liveBtn").disabled = true; return;
+  }
+  const v = $("video"); v.srcObject = stream; await v.play().catch(()=>{});
+  $("camBox").hidden = false; $("stopBtn").hidden = false; $("liveBtn").hidden = true;
+  running = true;
+  show("var(--idle)","読み取り中","QRを枠の中に映してください","");
+  loop();
+}
+async function loop(){
+  if(!running) return;
+  const v = $("video");
+  if (v.readyState >= 2 && v.videoWidth){
+    const s = Math.min(1, 800/Math.max(v.videoWidth,v.videoHeight));
+    work.width = Math.round(v.videoWidth*s); work.height = Math.round(v.videoHeight*s);
+    work.getContext("2d",{willReadFrequently:true}).drawImage(v,0,0,work.width,work.height);
+    const code = await decodeCanvas(work);
+    if (code) handle(code,true);
+  }
+  setTimeout(loop, 150);
+}
+function stopLive(){
+  running = false; if(stream) stream.getTracks().forEach(t=>t.stop()); stream = null;
+  $("camBox").hidden = true; $("stopBtn").hidden = true; $("liveBtn").hidden = false;
+}
+if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) { $("liveBtn").disabled = true; }
+$("liveBtn").onclick = startLive;
+$("stopBtn").onclick = stopLive;
+
+$("startBtn").onclick = ()=>{
+  audio(); SOUNDS[0]();
+  $("startBtn").textContent = "音はオンです";
+  show("var(--idle)","準備できました", codes.some(Boolean) ? "品物のQRを読み取ってください" : "まず下の照合リストに伝票のQRを登録してください","");
+};
+
+document.addEventListener("click", e=>{
+  const b = e.target.closest("button"); if(!b) return;
+  audio();
+  if (b.dataset.test!==undefined){ b.dataset.test==="ng" ? soundNG() : SOUNDS[+b.dataset.test](); }
+  if (b.dataset.arm!==undefined){
+    const i = +b.dataset.arm; armed = (armed===i) ? null : i; renderSlots();
+  }
+  if (b.dataset.del!==undefined){ codes[+b.dataset.del] = ""; save(); renderSlots(); }
+  if (b.dataset.man!==undefined){
+    const i = +b.dataset.man, v = $("man"+i).value.trim(); if(!v) return;
+    armed = i; handle(v,false);
+  }
+});
+$("clearAll").onclick = ()=>{ $("clearConfirm").hidden = false; };
+$("clearNo").onclick = ()=>{ $("clearConfirm").hidden = true; };
+$("clearYes").onclick = ()=>{ codes = ["","","","",""]; armed=null; save(); renderSlots(); $("clearConfirm").hidden = true; };
+
+renderSlots();
+</script>
+</body></html>
