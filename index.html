@@ -83,6 +83,22 @@ button.small{min-height:40px;padding:8px 10px;font-size:13px;font-weight:700}
 .log .c{font-family:var(--f-code);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 section{display:flex;flex-direction:column;gap:10px}
 @media (prefers-reduced-motion: reduce){#result.flash{animation:none}}
+
+.stage{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);display:flex;flex-direction:column;gap:8px;padding-block:6px}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+#camBox video{max-height:34vh}
+.ov{position:absolute;left:0;right:0;top:0;padding:10px 12px;color:#fff;font-weight:700;font-size:18px;line-height:1.35;background:rgba(0,0,0,.6);text-align:center}
+.ov small{display:block;font-size:13px;font-weight:400;opacity:.9}
+.regbar{display:grid;grid-template-columns:1.4fr repeat(5,1fr);gap:6px}
+.regbar button{min-height:48px;padding:4px;font-size:15px;flex-direction:column;gap:0;line-height:1.15}
+.regbar button small{font-size:10px;font-weight:400}
+.regbar button.on{color:#fff;border-color:transparent}
+.regbar .lbl{font-size:13px}
+#result{min-height:0;padding:12px 14px}
+#result .big{font-size:24px}
+@keyframes pulse{50%{opacity:.55}}
+.regbar button.armed{animation:pulse 1s infinite}
+@media (prefers-reduced-motion: reduce){.regbar button.armed{animation:none}}
 </style>
 
 </head><body>
@@ -92,41 +108,32 @@ section{display:flex;flex-direction:column;gap:10px}
     <span class="sub">登録したQRと一致すると番号ごとに違う音が鳴ります</span>
   </header>
 
-  <div id="result" role="status" aria-live="polite">
-    <div class="big" id="rBig">開始ボタンを押してください</div>
-    <div class="hint" id="rHint">最初に一度タップすると音が鳴るようになります</div>
-    <div class="code" id="rCode"></div>
-  </div>
-
   <div class="actions">
-    <button class="primary full" id="startBtn">開始（音をオンにする）</button>
-    <button id="liveBtn" class="primary full">カメラで読み取る</button>
-    <button id="photoBtn" class="full">写真・ファイルから</button>
-    <button id="driveBtn" class="full" hidden>Googleドライブの画像から読み取る</button>
+    <button class="primary full" id="startBtn">① 開始（音をオンにする）</button>
+    <button id="liveBtn" class="primary">② カメラで読み取る</button>
+    <button id="photoBtn">写真・ファイルから</button>
     <input type="file" id="fileIn" accept="image/*">
   </div>
-  
-
-  <section id="driveBox" hidden>
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
-      <h2>ドライブの画像（新しい順）</h2>
-      <span style="display:flex;gap:8px"><button class="small" id="driveReload">再読み込み</button><button class="small" id="driveClose">閉じる</button></span>
-    </div>
-    <div class="manual" style="margin:0"><input id="driveKw" placeholder="ファイル名の一部で絞り込み（空欄なら全部）" aria-label="ファイル名で絞り込み"><button class="small" id="driveSearch">検索</button></div>
-    <div id="driveMsg" class="note"></div>
-    <ul class="log dl" id="driveList"></ul>
-  </section>
   <div id="liveMsg" class="warn" hidden></div>
 
-  <div id="camBox" hidden>
-    <video id="video" playsinline muted></video>
-    <div class="frame"></div>
+  <div class="stage" id="stage">
+    <div id="camBox" hidden>
+      <video id="video" playsinline muted></video>
+      <div class="frame"></div>
+      <div class="ov" id="ov"></div>
+    </div>
+    <div class="regbar" id="regbar"></div>
+    <div id="result" role="status" aria-live="polite">
+      <div class="big" id="rBig">①の開始ボタンを押してください</div>
+      <div class="hint" id="rHint">最初に一度押すと音が鳴るようになります</div>
+      <div class="code" id="rCode"></div>
+    </div>
   </div>
   <button id="stopBtn" hidden>カメラを止める</button>
 
   <section>
     <h2>照合リスト（伝票側のQR）</h2>
-    <p class="note" id="armNote">「読み取って登録」を押してから伝票のQRをカメラに映すと、その番号に登録されます。押さずに映すと照合になります。</p>
+    <p class="note" id="armNote">カメラの下の「1番〜5番」を押してから伝票のQRを映すと、その番号に登録されます。「照合する」の状態で映すと照合になります。</p>
     <div class="slots" id="slots"></div>
     <div class="ngcard">
       <div><div class="snd">不一致：ブー</div><div class="val empty">どの番号とも合わないとき</div></div>
@@ -196,9 +203,21 @@ function renderSlots(){
       <div class="manual"><input id="man${i}" placeholder="手入力でも登録できます" aria-label="${i+1}番の内容を手入力"><button class="small" data-man="${i}">登録</button></div>
     </div>`).join("");
   codes.forEach((c,i)=>{ $("val"+i).textContent = c || "未登録"; });
+  $("regbar").innerHTML = `<button class="lbl ${armed===null?"on":""}" data-check="1" style="${armed===null?"background:var(--accent);color:var(--accent-fg)":""}">照合する<small>品物を映す</small></button>` +
+    SLOTS.map((s,i)=>`<button class="${armed===i?"on armed":""}" data-arm="${i}" style="${armed===i?`background:${s.color}`:""}" aria-label="${i+1}番に登録">${i+1}番<small>${codes[i]?"登録済✓":"未登録"}</small></button>`).join("");
+  updateOv();
   $("armNote").textContent = armed===null
-    ? "「読み取って登録」を押してから伝票のQRをカメラに映すと、その番号に登録されます。押さずに映すと照合になります。"
+    ? "カメラの下の「1番〜5番」を押してから伝票のQRを映すと、その番号に登録されます。「照合する」の状態で映すと照合になります。"
     : `次に読み取ったQRを ${armed+1}番（${SLOTS[armed].name}）に登録します。カメラに伝票のQRを映してください。`;
+  if (armed!==null) show(SLOTS[armed].color, `${armed+1}番に登録します`, "伝票のQRを映してください（もう一度押すと取り消し）", "");
+}
+let ovTimer=null;
+function updateOv(msg,bg){
+  const ov=$("ov"); if(!ov) return;
+  clearTimeout(ovTimer);
+  if(msg){ ov.innerHTML=msg; ov.style.background=bg; ovTimer=setTimeout(()=>updateOv(),2500); return; }
+  if(armed!==null){ ov.innerHTML=`${armed+1}番に登録します<small>伝票のQRを映してください</small>`; ov.style.background=SLOTS[armed].color; }
+  else { ov.innerHTML=`照合中<small>品物のQRを映してください</small>`; ov.style.background="rgba(0,0,0,.6)"; }
 }
 function show(bg, big, hint, code){
   const r = $("result"); r.style.background = bg;
@@ -225,19 +244,22 @@ function handle(code, fromLive){
 
   if (armed !== null){
     const dup = codes.findIndex((c,i)=>c===code && i!==armed);
-    if (dup>=0){ soundNG(); vibrate([200,80,200]); show("var(--ng)","登録できません",`このQRはすでに ${dup+1}番に登録されています`,code); return; }
+    if (dup>=0){ soundNG(); vibrate([200,80,200]); updateOv(`登録できません<small>${dup+1}番と同じQRです</small>`,"var(--ng)"); show("var(--ng)","登録できません",`このQRはすでに ${dup+1}番に登録されています`,code); return; }
     const i = armed; codes[i] = code; armed = null; save(); renderSlots();
     SOUNDS[i](); vibrate(120);
-    show(SLOTS[i].color, `${i+1}番に登録しました`, `音：${SLOTS[i].name}`, code);
+    show(SLOTS[i].color, `✓ ${i+1}番に登録しました`, `音：${SLOTS[i].name}　→ 照合に戻りました`, code);
+    updateOv(`✓ ${i+1}番に登録しました<small>${code.replace(/[<>&]/g,"")}</small>`, SLOTS[i].color);
     addLog(SLOTS[i].color, `登録${i+1}`, code); return;
   }
   const i = codes.indexOf(code);
   if (i>=0){
     SOUNDS[i](); vibrate(120);
     show(SLOTS[i].color, `${i+1}番と一致`, `${SLOTS[i].name}`, code);
+    updateOv(`${i+1}番と一致<small>${SLOTS[i].name}</small>`, SLOTS[i].color);
     addLog(SLOTS[i].color, `一致${i+1}`, code);
   } else {
     soundNG(); vibrate([300,100,300]);
+    updateOv(`不一致<small>ブー</small>`, "var(--ng)");
     show("var(--ng)", "不一致", codes.some(Boolean) ? "登録したどのQRとも合いません" : "まだ何も登録されていません", code);
     addLog("var(--ng)", "不一致", code);
   }
@@ -405,6 +427,7 @@ document.addEventListener("click", e=>{
   if (b.dataset.arm!==undefined){
     const i = +b.dataset.arm; armed = (armed===i) ? null : i; renderSlots();
   }
+  if (b.dataset.check!==undefined){ armed = null; renderSlots(); show("var(--idle)","照合モード","品物のQRを映してください",""); }
   if (b.dataset.del!==undefined){ codes[+b.dataset.del] = ""; save(); renderSlots(); }
   if (b.dataset.man!==undefined){
     const i = +b.dataset.man, v = $("man"+i).value.trim(); if(!v) return;
