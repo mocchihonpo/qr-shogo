@@ -32,6 +32,9 @@ main{flex:1;min-height:0;display:flex;flex-direction:column;padding:0 max(12px,e
 .cam video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .cam .frame{position:absolute;left:50%;top:50%;width:62%;aspect-ratio:1;transform:translate(-50%,-50%);border:3px solid rgba(255,255,255,.85);border-radius:14px;pointer-events:none;max-height:80%}
 .cam .diag{position:absolute;left:0;right:0;bottom:0;padding:3px 8px;font:11px var(--f-code);color:#fff;background:rgba(0,0,0,.45)}
+.cam .seen{position:absolute;left:8px;right:8px;top:8px;padding:6px 10px;border-radius:8px;background:rgba(0,0,0,.65);color:#fff;font:700 13px var(--f-code);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center}
+.big{width:100%;min-height:54px;font-size:17px;background:var(--reg);color:#fff;border-color:var(--reg)}
+.big:disabled{opacity:.45}
 .cam .tap{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:rgba(0,0,0,.72);color:#fff;border:0;border-radius:0;font-size:20px;width:100%}
 .cam .tap small{font-size:13px;font-weight:400;opacity:.85}
 .status{border-radius:12px;padding:10px 12px;background:var(--idle);color:#fff;text-align:center;min-height:64px;display:flex;flex-direction:column;justify-content:center}
@@ -78,13 +81,15 @@ nav button.on.reg{color:var(--reg)}
     <div class="cam" id="cam">
       <video id="video" playsinline muted autoplay></video>
       <div class="frame"></div>
+      <div class="seen" id="seen" hidden></div>
       <div class="diag" id="diag"></div>
       <button class="tap" id="tapStart">タップしてカメラ開始<small>音もここでオンになります</small></button>
     </div>
     <div class="status" id="status" role="status" aria-live="polite"><b id="sBig">準備中</b><span id="sSub"></span></div>
 
     <div id="regTools">
-      <div class="reglist" id="reglist"></div>
+      <button class="big" id="regNow" disabled>QRを枠に入れてください</button>
+      <div class="reglist" id="reglist" style="margin-top:8px"></div>
       <div class="row" style="margin-top:8px">
         <button id="toCompare">登録完了 → 比較へ</button>
         <button id="clearReg">登録を全部消す</button>
@@ -228,7 +233,7 @@ function handle(code, fromCam){
   lastCode = code; lastAt = now;
   if (tab==="reg"){
     const i = reg.indexOf(code);
-    if (i>=0){ sDup(); vib(60); status(colorOf(i), `${i+1}番に登録済み`, code); return; }
+    if (i>=0){ sDup(); vib(60); status("var(--s4)", `このQRは ${i+1}番に登録済みです`, "別の伝票のQRをかざしてください　"+code); return; }
     reg.push(code); saveReg(); renderReg();
     const n = reg.length-1;
     sReg(); vib(100);
@@ -259,6 +264,17 @@ async function decodeCanvas(cv){
 
 /* ---------- カメラ ---------- */
 let stream = null, running = false, tries = 0, flip = false;
+let seenCode = "", seenAt = 0;
+function updateSeen(){
+  const fresh = seenCode && Date.now()-seenAt < 1500;
+  $("seen").hidden = !fresh;
+  if (fresh) $("seen").textContent = "読めています：" + seenCode;
+  const b = $("regNow");
+  if (!fresh){ b.disabled = true; b.textContent = "QRを枠に入れてください"; return; }
+  const i = reg.indexOf(seenCode);
+  b.disabled = i>=0;
+  b.textContent = i>=0 ? `このQRは ${i+1}番に登録済み` : `このQRを ${reg.length+1}番に登録する`;
+}
 const work = document.createElement("canvas");
 async function startCam(){
   audio(); sReg();
@@ -298,7 +314,8 @@ async function loop(){
     }catch(e){}
     tries++;
     $("diag").textContent = `カメラ ${W}×${H}　解析 ${tries}回　${detector?"標準":"jsQR"}${(!detector&&!window.jsQR)?"（読込失敗）":""}`;
-    if (code) handle(code, true);
+    if (code){ seenCode = code.trim(); seenAt = Date.now(); handle(code, true); }
+    updateSeen();
   }
   setTimeout(loop, 120);
 }
@@ -307,6 +324,7 @@ document.addEventListener("visibilitychange", ()=>{ if(!document.hidden && ac) a
 
 /* ---------- ボタン ---------- */
 document.querySelectorAll("nav button").forEach(b=> b.onclick = ()=>{ audio(); setTab(b.dataset.tab); });
+$("regNow").onclick = ()=>{ audio(); if (seenCode && Date.now()-seenAt < 1500){ lastCode=""; handle(seenCode,false); updateSeen(); } };
 $("toCompare").onclick = ()=> setTab("cmp");
 $("reglist").addEventListener("click", e=>{
   const b = e.target.closest("button[data-del]"); if(!b) return;
