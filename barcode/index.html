@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#121512">
+<title>バーコード探索ブザー</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/zxing-wasm@2.2.4/dist/iife/reader/index.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<style>
+/* Layout: phone app — top bar, one tab's content filling the screen, tab bar at the bottom (登録 / 比較 / 履歴) */
+:root{
+  --bg:#121512; --panel:#1c211c; --fg:#eef1ec; --muted:#9aa396; --line:#2f362f;
+  --accent:#7fc8a2; --accent-fg:#0d1a12; --reg:#3f7fe0; --warn:#c77700;
+  --ng:#e5392f; --idle:#3a423a;
+  --f-ui:"BIZ UDPGothic","Hiragino Sans","Noto Sans JP",system-ui,sans-serif;
+  --f-code:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:var(--f-ui);font-size:15px;line-height:1.5}
+body{display:flex;flex-direction:column;overflow:hidden;padding-top:env(safe-area-inset-top,0px)}
+button{font:inherit;font-weight:700;color:var(--fg);background:var(--panel);border:1.5px solid var(--line);border-radius:10px;padding:8px 12px;cursor:pointer;min-height:42px}
+button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.top{display:flex;align-items:center;gap:8px;padding:8px max(12px,env(safe-area-inset-right,0px)) 6px max(12px,env(safe-area-inset-left,0px))}
+.top h1{font-size:16px;margin:0;flex:1}
+.badge{font-size:13px;font-weight:700;padding:4px 10px;border-radius:999px;background:var(--idle)}
+.top button{min-height:34px;padding:4px 10px;font-size:13px}
+.confirm{display:flex;gap:8px;align-items:center;justify-content:space-between;background:var(--panel);border:1.5px solid var(--ng);border-radius:10px;padding:8px 10px;font-size:13px;margin:0 max(12px,env(safe-area-inset-right,0px)) 6px max(12px,env(safe-area-inset-left,0px))}
+.confirm button{min-height:36px;padding:4px 12px}
+main{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;padding:0 max(12px,env(safe-area-inset-right,0px)) 8px max(12px,env(safe-area-inset-left,0px))}
+.view{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px}
+.cam{position:relative;flex:1;min-height:210px;border-radius:14px;overflow:hidden;background:#000}
+.cam video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.cam .frame{position:absolute;left:50%;top:50%;width:88%;aspect-ratio:3/1;transform:translate(-50%,-50%);border:3px solid rgba(255,255,255,.85);border-radius:14px;pointer-events:none}
+.cam .seen{position:absolute;left:8px;right:8px;top:8px;padding:5px 10px;border-radius:8px;background:rgba(0,0,0,.7);color:#fff;font:700 13px var(--f-code);word-break:break-all;text-align:center;max-height:40%;overflow:hidden}
+.cam .diag{position:absolute;left:0;right:0;bottom:0;padding:3px 8px;font:11px var(--f-code);color:#fff;background:rgba(0,0,0,.45)}
+.cam .tap{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:rgba(0,0,0,.72);color:#fff;border:0;border-radius:0;font-size:20px;width:100%}
+.cam .tap small{font-size:13px;font-weight:400;opacity:.85}
+.status{border-radius:12px;padding:8px 12px;background:var(--idle);color:#fff;text-align:center;min-height:62px;display:flex;flex-direction:column;justify-content:center}
+.status b{font-size:21px;line-height:1.25}
+.status span{font-size:13px;opacity:.92;word-break:break-all}
+.status.flash{animation:fl .3s ease-out}
+@keyframes fl{from{transform:scale(1.04)}to{transform:scale(1)}}
+.reglist{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;min-height:44px;align-items:center}
+.chip{flex:0 0 auto;display:flex;align-items:center;gap:6px;padding:4px 6px 4px 4px;border-radius:10px;background:var(--panel);border:1.5px solid var(--line);font-size:13px;max-width:75%}
+.chip .n{min-width:52px;height:30px;padding:0 6px;border-radius:7px;font:700 13px var(--f-ui);display:flex;align-items:center;justify-content:center;flex:0 0 auto;white-space:nowrap}
+.chip .c{font-family:var(--f-code);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;max-width:14em}
+.chip button{min-height:28px;padding:0 8px;font-size:12px;border-radius:7px}
+.empty{color:var(--muted);font-size:13px}
+.row{display:flex;gap:8px}
+.row button{flex:1}
+.next{background:transparent;color:var(--accent);border-color:var(--accent);width:100%}
+.hist{flex:1;min-height:0;overflow-y:auto;list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.hist li{display:grid;grid-template-columns:auto auto 1fr;gap:10px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:13px}
+.hist .t{font-family:var(--f-code);color:var(--muted);font-variant-numeric:tabular-nums}
+.hist .tag{font-weight:700;padding:2px 8px;border-radius:6px;font-size:12px;white-space:nowrap}
+.hist .c{font-family:var(--f-code);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sum{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.sum div{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:6px;text-align:center;font-size:12px;color:var(--muted)}
+.sum b{display:block;font:700 20px var(--f-code);color:var(--fg)}
+.hint{font-size:12px;color:var(--muted);text-align:center}
+/* 一致・不一致を画面いっぱいの色で知らせる */
+.splash{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center;pointer-events:none;opacity:0;transition:opacity .15s}
+.splash.show{opacity:1}
+.splash b{font-size:64px;line-height:1.05}
+.splash span{font-size:30px;font-weight:700}
+.splash small{font:14px var(--f-code);opacity:.85;max-width:90%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+nav{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--line);background:#0d100d;padding-bottom:env(safe-area-inset-bottom,0px)}
+nav button{border:0;border-radius:0;background:transparent;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 4px 8px;min-height:54px;font-size:12px}
+nav button svg{width:24px;height:24px}
+nav button.on{color:var(--accent)}
+nav button.on.reg{color:#7fb0ff}
+[hidden]{display:none!important}
+@media (prefers-reduced-motion: reduce){.status.flash{animation:none}.splash{transition:none}}
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>バーコード探索ブザー</h1>
+  <span class="badge" id="badge">登録</span>
+  <button id="resetBtn">リセット</button>
+</div>
+<div class="confirm" id="resetConfirm" hidden>
+  <span id="resetMsg">登録をすべて消して最初からやり直します</span>
+  <span class="row"><button id="resetYes">消す</button><button id="resetNo">やめる</button></span>
+</div>
+
+<main>
+  <section class="view" id="scanView">
+    <div class="cam" id="cam">
+      <video id="video" playsinline muted autoplay></video>
+      <div class="frame"></div>
+      <div class="seen" id="seen" hidden></div>
+      <div class="diag" id="diag"></div>
+      <button class="tap" id="tapStart">タップしてカメラ開始<small>音もここでオンになります</small></button>
+    </div>
+    <div class="status" id="status" role="status" aria-live="polite"><b id="sBig">準備中</b><span id="sSub"></span></div>
+
+    <div id="regTools" class="view" style="flex:0 0 auto">
+      <div class="reglist" id="reglist"></div>
+      <button class="next" id="toCompare">登録おわり → 探すへ</button>
+    </div>
+
+    <div id="cmpTools" hidden>
+      <div class="sum">
+        <div>登録<b id="cReg">0</b></div>
+        <div>一致<b id="cOk">0</b></div>
+        <div>不一致<b id="cNg">0</b></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="view" id="histView" hidden>
+    <div class="sum">
+      <div>比較<b id="hAll">0</b></div>
+      <div>一致<b id="hOk">0</b></div>
+      <div>不一致<b id="hNg">0</b></div>
+    </div>
+    <ul class="hist" id="hist"></ul>
+    <button id="csvBtn">CSVで保存</button>
+  </section>
+</main>
+
+<div class="splash" id="splash" aria-hidden="true"><b id="spBig"></b><span id="spMid"></span><small id="spSmall"></small></div>
+
+<nav>
+  <button data-tab="reg" class="on reg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2"/><path d="M12 8v8M8 12h8"/></svg>登録</button>
+  <button data-tab="cmp"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2"/><path d="M8 12l3 3 5-6"/></svg>探す</button>
+  <button data-tab="hist"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>履歴</button>
+</nav>
+
+<script>
+const $ = id => document.getElementById(id);
+/* 番号ごとの色（10色、11番目からはくり返し） */
+const PALETTE = [
+  {name:"赤",     bg:"#e53935", fg:"#fff"},
+  {name:"オレンジ",bg:"#fb8c00", fg:"#1a1000"},
+  {name:"黄",     bg:"#fdd835", fg:"#1a1600"},
+  {name:"緑",     bg:"#43a047", fg:"#fff"},
+  {name:"水色",   bg:"#29b6f6", fg:"#00141f"},
+  {name:"青",     bg:"#1e5fd6", fg:"#fff"},
+  {name:"紫",     bg:"#8e44ad", fg:"#fff"},
+  {name:"ピンク", bg:"#ec5a91", fg:"#fff"},
+  {name:"茶",     bg:"#8d6e63", fg:"#fff"},
+  {name:"白",     bg:"#f2f2f2", fg:"#111"},
+];
+const col = i => PALETTE[i % PALETTE.length];
+const KR = "bcbz-reg-v1", KH = "bcbz-hist-v1";
+let reg = [], hist = [];
+try{ reg = JSON.parse(localStorage.getItem(KR)||"[]"); if(!Array.isArray(reg)) reg=[]; }catch(e){ reg=[]; }
+try{ hist = JSON.parse(localStorage.getItem(KH)||"[]"); if(!Array.isArray(hist)) hist=[]; }catch(e){ hist=[]; }
+function saveReg(){ try{ localStorage.setItem(KR, JSON.stringify(reg)); }catch(e){} }
+function saveHist(){ try{ localStorage.setItem(KH, JSON.stringify(hist.slice(0,500))); }catch(e){} }
+
+/* ---------- 音 ---------- */
+let ac = null;
+function audio(){ if(!ac){ const C = window.AudioContext||window.webkitAudioContext; if(C) ac = new C(); } if(ac && ac.state==="suspended") ac.resume(); return ac; }
+function tone(f, st, d, type="sine", vol=.35){
+  const a = audio(); if(!a) return;
+  const t = a.currentTime+st, o = a.createOscillator(), g = a.createGain();
+  o.type=type; o.frequency.setValueAtTime(f,t);
+  g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(vol,t+.01);
+  g.gain.setValueAtTime(vol,t+d-.04); g.gain.linearRampToValueAtTime(0,t+d);
+  o.connect(g).connect(a.destination); o.start(t); o.stop(t+d+.02);
+}
+const MATCH = [
+  ()=>{ tone(1047,0,.28,"sine",.4); tone(784,.3,.5,"sine",.4); },          // ピンポン
+  ()=>{ tone(2000,0,.6,"square",.18); },                                  // ピー
+  ()=>{ tone(784,0,.12); tone(988,.12,.12); tone(1319,.24,.3); },          // ピロリン
+  ()=>{ tone(523,0,.15,"triangle",.5); tone(523,.22,.15,"triangle",.5); }, // ポンポン
+  ()=>{ for(let k=0;k<3;k++) tone(1568,k*.13,.08,"square",.18); },         // ピピピ
+];
+const sMatch = i => MATCH[i % MATCH.length]();
+const sReg = () => tone(1800,0,.12,"square",.16);
+const sDup = () => { tone(900,0,.07,"square",.12); tone(900,.12,.07,"square",.12); };
+const sNG  = () => { tone(140,0,.7,"sawtooth",.3); tone(147,0,.7,"sawtooth",.22); };
+const vib = p => { try{ navigator.vibrate && navigator.vibrate(p); }catch(e){} };
+
+/* ---------- 表示 ---------- */
+let tab = "reg";
+function status(bg, fg, big, sub){
+  const s = $("status"); s.style.background = bg; s.style.color = fg;
+  $("sBig").textContent = big; $("sSub").textContent = sub||"";
+  s.classList.remove("flash"); void s.offsetWidth; s.classList.add("flash");
+}
+let spT = null;
+function splash(bg, fg, big, mid, small){
+  const s = $("splash"); s.style.background = bg; s.style.color = fg;
+  $("spBig").textContent = big; $("spMid").textContent = mid; $("spSmall").textContent = small||"";
+  s.classList.add("show"); clearTimeout(spT); spT = setTimeout(()=>s.classList.remove("show"), 1300);
+}
+function idleStatus(){
+  if (tab==="reg"){
+    const n = reg.length, c = col(n);
+    status("var(--reg)","#fff", `次は ${n+1}番（${c.name}）`, n ? `${n}件登録済み。探したいバーコードを横長の枠に入れると登録します` : "探したいバーコードを横長の枠に入れると登録します");
+  } else {
+    status("var(--idle)","#fff", "探すモード", reg.length ? "品物のバーコードを横長の枠に入れてください" : "まだ登録がありません。先に「登録」タブで探したいバーコードを登録してください");
+  }
+}
+function renderReg(){
+  const el = $("reglist");
+  if (!reg.length){ el.innerHTML = `<span class="empty">登録はまだありません</span>`; }
+  else {
+    el.innerHTML = reg.map((c,i)=>`<div class="chip"><span class="n" style="background:${col(i).bg};color:${col(i).fg}">${i+1} ${col(i).name}</span><span class="c"></span><button data-del="${i}" aria-label="${i+1}番を消す">×</button></div>`).join("");
+    el.querySelectorAll(".chip .c").forEach((n,i)=> n.textContent = reg[i]);
+  }
+  $("cReg").textContent = reg.length;
+  $("toCompare").hidden = !reg.length;
+  $("toCompare").textContent = `登録 ${reg.length}件で探すへ進む`;
+}
+function renderHist(){
+  const ok = hist.filter(h=>h.r>=0).length;
+  $("hAll").textContent = hist.length; $("hOk").textContent = ok; $("hNg").textContent = hist.length-ok;
+  const ul = $("hist");
+  if (!hist.length){ ul.innerHTML = `<li><span class="t">--:--</span><span class="tag" style="background:var(--idle);color:#fff">なし</span><span class="c">比較するとここに残ります</span></li>`; return; }
+  ul.innerHTML = hist.map(()=>`<li><span class="t"></span><span class="tag"></span><span class="c"></span></li>`).join("");
+  [...ul.children].forEach((li,k)=>{
+    const h = hist[k], d = new Date(h.t);
+    li.children[0].textContent = `${d.getMonth()+1}/${d.getDate()} ${d.toTimeString().slice(0,8)}`;
+    if (h.r>=0){ li.children[1].textContent = `一致 ${h.r+1}番 ${col(h.r).name}`; li.children[1].style.background = col(h.r).bg; li.children[1].style.color = col(h.r).fg; }
+    else { li.children[1].textContent = "不一致"; li.children[1].style.background = "var(--ng)"; li.children[1].style.color = "#fff"; }
+    li.children[2].textContent = h.c;
+  });
+}
+let sess = {ok:0, ng:0};
+const sessionCounts = ()=>{ $("cOk").textContent = sess.ok; $("cNg").textContent = sess.ng; };
+
+function setTab(t){
+  tab = t;
+  document.querySelectorAll("nav button").forEach(b=>{ b.classList.toggle("on", b.dataset.tab===t); });
+  const scan = t!=="hist";
+  $("scanView").hidden = !scan; $("histView").hidden = scan;
+  $("regTools").hidden = t!=="reg"; $("cmpTools").hidden = t!=="cmp";
+  $("badge").textContent = t==="reg" ? "登録" : t==="cmp" ? "比較" : "履歴";
+  $("badge").style.background = t==="reg" ? "var(--reg)" : t==="cmp" ? "var(--accent)" : "var(--idle)";
+  $("badge").style.color = t==="cmp" ? "var(--accent-fg)" : "#fff";
+  $("resetBtn").textContent = t==="hist" ? "履歴を消す" : "リセット";
+  $("resetConfirm").hidden = true;
+  lastCode = "";
+  if (t==="hist") renderHist();
+  if (t==="cmp"){ sess = {ok:0,ng:0}; sessionCounts(); }
+  if (scan && running) idleStatus();
+}
+
+/* ---------- 読み取った時の処理 ---------- */
+let lastCode = "", lastAt = 0;
+function handle(code, fromCam){
+  code = (code||"").trim(); if(!code) return;
+  const now = Date.now();
+  if (fromCam && code===lastCode && now-lastAt < 2500) return;   // 同じコードの連続反応を防ぐ
+  lastCode = code; lastAt = now;
+  if (tab==="reg"){
+    const i = reg.indexOf(code);
+    if (i>=0){ sDup(); vib(60); status("var(--warn)","#fff", `このコードは ${i+1}番（${col(i).name}）と同じ内容です`, `読んだ内容：${code}`); return; }
+    reg.push(code); saveReg(); renderReg();
+    const n = reg.length-1, c = col(n);
+    sReg(); vib(100);
+    splash(c.bg, c.fg, `${n+1}番`, `${c.name}で登録`, code);
+    status(c.bg, c.fg, `✓ ${n+1}番（${c.name}）に登録しました`, `内容：${code}　／　次は ${n+2}番（${col(n+1).name}）`);
+    return;
+  }
+  if (tab==="cmp"){
+    const i = reg.indexOf(code);
+    hist.unshift({t:now, c:code, r:i}); saveHist();
+    if (i>=0){
+      const c = col(i);
+      sMatch(i); vib(150); sess.ok++;
+      splash(c.bg, c.fg, `${i+1}番`, `${c.name}　一致`, code);
+      status(c.bg, c.fg, `一致　${i+1}番（${c.name}）`, code);
+    } else {
+      sNG(); vib([300,100,300]); sess.ng++;
+      splash("var(--ng)", "#fff", "×", "不一致", code);
+      status("var(--ng)", "#fff", "不一致", reg.length ? code : "登録がありません　"+code);
+    }
+    sessionCounts();
+  }
+}
+
+/* ---------- QR解析 ---------- */
+let detector = null;
+try{ if ("BarcodeDetector" in window) detector = new BarcodeDetector({formats:["qr_code","code_128","code_39","code_93","codabar","ean_13","ean_8","itf","upc_a","upc_e","data_matrix"]}); }catch(e){ detector = null; }
+let zxOK = null;  // 高感度エンジン（ZXing）が使えるか
+async function decodeCanvas(cv){
+  const W = cv.width, H = cv.height, cx = W/2, cy = H/2;
+  const nearest = list => list.sort((p,q)=>p.d-q.d)[0];   // 画面の中央に一番近いQRを選ぶ
+  if (detector){
+    try{
+      const r = await detector.detect(cv);
+      if (r && r.length) return nearest(r.map(x=>{ const bb=x.boundingBox; return {t:x.rawValue, d:Math.hypot(bb.x+bb.width/2-cx, bb.y+bb.height/2-cy)}; })).t;
+    }catch(e){}
+  }
+  const img = cv.getContext("2d",{willReadFrequently:true}).getImageData(0,0,W,H);
+  if (window.ZXingWASM && zxOK !== false){
+    try{
+      const r = await ZXingWASM.readBarcodes(img, {tryHarder:true, maxNumberOfSymbols:4});
+      zxOK = true;
+      const ok = (r||[]).filter(x=>x.isValid && x.text);
+      if (ok.length) return nearest(ok.map(x=>{ const p=x.position; const mx=(p.topLeft.x+p.topRight.x+p.bottomLeft.x+p.bottomRight.x)/4, my=(p.topLeft.y+p.topRight.y+p.bottomLeft.y+p.bottomRight.y)/4; return {t:x.text, d:Math.hypot(mx-cx,my-cy)}; })).t;
+      return null;
+    }catch(e){ zxOK = false; }
+  }
+  if (window.jsQR){
+    const r = jsQR(img.data, W, H, {inversionAttempts:"dontInvert"});
+    if (r) return r.data;
+  }
+  return null;
+}
+
+/* ---------- カメラ ---------- */
+let pend = "", pendAt = 0;  // 誤読防止：2回連続で同じ内容なら確定
+let stream = null, running = false, tries = 0, flip = false, seenCode = "", seenAt = 0;
+const work = document.createElement("canvas");
+async function startCam(){
+  audio(); sReg();
+  $("tapStart").hidden = true;
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1920},height:{ideal:1080}},audio:false});
+  }catch(e){
+    try{ stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"},audio:false}); }
+    catch(e2){
+      $("tapStart").hidden = false;
+      $("tapStart").innerHTML = "カメラを使えませんでした<small>カメラの使用を「許可」にして、もう一度タップしてください</small>";
+      return;
+    }
+  }
+  const v = $("video"); v.srcObject = stream; await v.play().catch(()=>{});
+  running = true; idleStatus(); loop();
+}
+async function loop(){
+  if (!running) return;
+  const v = $("video");
+  if (!$("scanView").hidden && v.readyState>=2 && v.videoWidth){
+    const W = v.videoWidth, H = v.videoHeight;
+    let code = null;
+    try{
+      const ctx = work.getContext("2d",{willReadFrequently:true});
+      // 画面に見えている範囲（と、交互に枠の内側を拡大）を解析する
+      const box = $("cam"), fr = box.querySelector(".frame");
+      const sc = Math.max(box.clientWidth/W, box.clientHeight/H);
+      let cw, ch;
+      if (flip){ cw = Math.min(W, Math.round(fr.offsetWidth*1.1/sc)); ch = Math.min(H, Math.round(fr.offsetHeight*1.6/sc)); }
+      else { cw = Math.min(W, Math.round(box.clientWidth/sc)); ch = Math.min(H, Math.round(box.clientHeight/sc)); }
+      const sx = Math.round((W-cw)/2), sy = Math.round((H-ch)/2);
+      const k = Math.min(1, (flip?1000:1100)/Math.max(cw,ch));
+      work.width = Math.round(cw*k); work.height = Math.round(ch*k);
+      ctx.drawImage(v,sx,sy,cw,ch,0,0,work.width,work.height);
+      flip = !flip;
+      code = await decodeCanvas(work);
+    }catch(e){}
+    tries++;
+    $("diag").textContent = `カメラ ${W}×${H}　解析 ${tries}回　${detector?"標準":zxOK?"ZXing":window.ZXingWASM&&zxOK===null?"ZXing準備中":"jsQR"}`;
+    if (code){ code = code.trim(); const t = Date.now();
+      if (code===pend && t-pendAt < 1500){ seenCode = code; seenAt = t; handle(code, true); }
+      pend = code; pendAt = t; }
+    const fresh = seenCode && Date.now()-seenAt < 1200;
+    $("seen").hidden = !fresh;
+    if (fresh) $("seen").textContent = "読めています：" + seenCode;
+  }
+  setTimeout(loop, 60);
+}
+$("tapStart").onclick = startCam;
+document.addEventListener("visibilitychange", ()=>{ if(!document.hidden && ac) ac.resume(); });
+
+/* ---------- ボタン ---------- */
+document.querySelectorAll("nav button").forEach(b=> b.onclick = ()=>{ audio(); setTab(b.dataset.tab); });
+$("toCompare").onclick = ()=> setTab("cmp");
+$("reglist").addEventListener("click", e=>{
+  const b = e.target.closest("button[data-del]"); if(!b) return;
+  reg.splice(+b.dataset.del,1); saveReg(); renderReg(); lastCode = ""; if (running) idleStatus();
+});
+$("resetBtn").onclick = ()=>{
+  $("resetMsg").textContent = tab==="hist" ? "比較の履歴をすべて消します" : `登録（${reg.length}件）をすべて消して最初からやり直します`;
+  $("resetConfirm").hidden = false;
+};
+$("resetNo").onclick = ()=> $("resetConfirm").hidden = true;
+$("resetYes").onclick = ()=>{
+  if (tab==="hist"){ hist = []; saveHist(); renderHist(); }
+  else { reg = []; saveReg(); renderReg(); lastCode = ""; if (tab!=="reg") setTab("reg"); if (running) idleStatus(); else status("var(--idle)","#fff","登録を消しました","カメラ画面をタップして始めてください"); }
+  $("resetConfirm").hidden = true;
+};
+$("csvBtn").onclick = ()=>{
+  const q = s => `"${String(s).replace(/"/g,'""')}"`;
+  const rows = [["日時","結果","番号","色","コードの内容"]].concat(hist.map(h=>{
+    const d = new Date(h.t);
+    const ts = `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()} ${d.toTimeString().slice(0,8)}`;
+    return [ts, h.r>=0?"一致":"不一致", h.r>=0?h.r+1:"", h.r>=0?col(h.r).name:"", h.c];
+  }));
+  const csv = "﻿" + rows.map(r=>r.map(q).join(",")).join("\r\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+  const d = new Date(); a.download = `探索履歴_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+};
+
+renderReg(); setTab("reg");
+if (reg.length) status("var(--warn)","#fff", `前回の登録が${reg.length}件残っています`, "続けて登録するか、右上の「リセット」で消してからカメラ画面をタップしてください");
+else status("var(--idle)","#fff","カメラの開始待ち","上のカメラ画面をタップしてください");
+</script>
+</body>
+</html>
