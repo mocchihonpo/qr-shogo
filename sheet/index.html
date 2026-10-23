@@ -178,9 +178,9 @@ nav button.on{color:var(--accent)}
     <div class="box">
       <h2>つなぎ先（Apps Script）</h2>
       <label class="note" for="gasUrl">ウェブアプリのURL</label>
-      <input id="gasUrl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off">
+      <input id="gasUrl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="url">
       <label class="note" for="gasKey">合言葉</label>
-      <input id="gasKey" autocomplete="off">
+      <input id="gasKey" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
       <label class="note" for="gasDays">履歴（history）を何日前まで読むか</label>
       <select id="gasDays"><option>7</option><option>14</option><option selected>30</option><option>60</option></select>
       <button id="saveSet">保存</button>
@@ -642,7 +642,7 @@ $("lbCheckAll").onclick = ()=>{ lbSel = new Set(labelRows().map(r=>r.id)); rende
 $("lbCheckNone").onclick = ()=>{ lbSel = new Set(); renderLabel(); };
 $("lbItems").addEventListener("change", e=>{ const id = e.target.dataset.id; if(!id) return; e.target.checked ? lbSel.add(id) : lbSel.delete(id); renderLabel(); });
 $("lbPrint").onclick = printLabels;
-$("saveSet").onclick = ()=>{ SET = {url:$("gasUrl").value.trim(), key:$("gasKey").value.trim(), days:$("gasDays").value}; save(K.set, SET); renderInfo(); status("var(--accent)","var(--accent-fg)","設定を保存しました","「シートから読み込む」を押してください"); };
+$("saveSet").onclick = ()=>{ SET = {url:$("gasUrl").value.trim(), key:$("gasKey").value.normalize("NFKC").trim(), days:$("gasDays").value}; save(K.set, SET); renderInfo(); status("var(--accent)","var(--accent-fg)","設定を保存しました","「シートから読み込む」を押してください"); };
 $("loadBtn").onclick = loadFromGas;
 $("csvFile").onchange = e=>{ const f = e.target.files[0]; if (f) loadFromCsv(f); };
 $("addBtn").onclick = ()=>{ $("adCode").value = pendingAdd; $("adKata").value=""; $("adDest").value=""; $("adTan").value=""; $("adQty").value="1"; $("addDlg").showModal(); };
