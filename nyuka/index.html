@@ -52,6 +52,9 @@ label.pick{display:flex;align-items:center;justify-content:center;min-height:42p
 .st.ok{background:var(--done)}.st.wait{background:var(--warn)}.st.ng{background:var(--ng)}
 .acts button{min-height:36px;padding:4px 10px;font-size:13px}
 .acts .share{background:var(--teams);border-color:var(--teams);color:#fff;margin-left:auto}
+.item .note{min-height:36px;padding:4px 8px;font-size:13px;background:#1f2430;border-color:#353c4d}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips button{min-height:34px;padding:3px 10px;font-size:13px;border-radius:999px}
 .empty{color:var(--muted);text-align:center;padding:24px 8px;font-size:14px}
 .note{font-size:13px;color:var(--muted)}
 .note a{color:var(--accent)}
@@ -78,6 +81,9 @@ nav button.on{background:var(--accent);color:var(--accent-fg)}
     </div>
     <div class="lbl">次の写真に付けるメモ（形名・担当者など、空でもOK）</div>
     <input id="memo" placeholder="例：FR-E820 竹中さん" autocomplete="off">
+    <div class="lbl">気づき（自分用。Teamsには送らず、Driveの写真に残ります）</div>
+    <input id="note" placeholder="例：部署違い（冷熱宛て）" autocomplete="off">
+    <div class="chips" id="chips"></div>
     <div class="msg" id="msg" hidden></div>
     <div id="list" class="list"></div>
   </section>
@@ -173,14 +179,14 @@ function shrink(file, max){
 }
 
 async function addFiles(files){
-  const memo = $("memo").value.trim();
+  const memo = $("memo").value.trim(), note = $("note").value.trim();
   for (const f of files){
     const at = Date.now();
     const blob = await shrink(f, SET.size);
-    const it = {name:newName(new Date(at)), blob, memo, at, status:"wait", err:""};
+    const it = {name:newName(new Date(at)), blob, memo, note, at, status:"wait", err:""};
     ITEMS.set(it.name, it); dbPut(it);
   }
-  $("memo").value = "";
+  $("memo").value = ""; $("note").value = "";
   render();
   if (SET.auto) sendQueue();
   else showMsg("撮りました。「未送信を送る」でDriveへ送れます");
@@ -192,7 +198,7 @@ function toB64(blob){
   return new Promise((res,rej)=>{ const r = new FileReader(); r.onload=()=>res(String(r.result).split(",")[1]); r.onerror=rej; r.readAsDataURL(blob); });
 }
 async function sendOne(it){
-  const body = JSON.stringify({key:SET.key||"", name:it.name, mime:"image/jpeg", memo:it.memo||"", data: await toB64(it.blob)});
+  const body = JSON.stringify({key:SET.key||"", name:it.name, mime:"image/jpeg", memo:it.memo||"", note:it.note||"", data: await toB64(it.blob)});
   const res = await fetch(SET.url, {method:"POST", body, redirect:"follow"});
   const t = await res.text();
   let j; try{ j = JSON.parse(t); }catch(e){ throw new Error("返事が読めません（URLが違うか、公開の設定が「全員」になっていない可能性）"); }
@@ -214,7 +220,26 @@ async function sendQueue(){
     if (ng.length) showMsg(`${ng.length}枚送れませんでした：${ng[0].err}`, "ng");
     else if (todo.length) showMsg(`${todo.length}枚をDriveの「納入品」に送りました`, "ok");
   } finally { sending = false; }
+  syncNotes();
 }
+
+/* ---- 送ったあとで書き足したメモ・気づきをDriveに反映 ---- */
+let syncing = false;
+async function syncNotes(){
+  if (syncing || !SET.url) return;
+  syncing = true;
+  try{
+    for (const it of [...ITEMS.values()].filter(i => i.status === "ok" && i.dirty)){
+      try{
+        const res = await fetch(SET.url, {method:"POST", redirect:"follow", body: JSON.stringify({key:SET.key||"", action:"note", name:it.name, memo:it.memo||"", note:it.note||""})});
+        const j = JSON.parse(await res.text());
+        if (!j.ok) throw new Error(j.error === "写真が空です" ? "Apps Scriptを「新バージョン」で公開し直してください" : j.error);
+        it.dirty = false; dbPut(it); render();
+      }catch(e){ showMsg("メモをDriveに反映できませんでした：" + (e.message||e), "ng"); break; }
+    }
+  } finally { syncing = false; }
+}
+function edited(it){ if (it.status === "ok"){ it.dirty = true; } dbPut(it); syncNotes(); }
 
 /* ---- Teamsなどへ共有（携帯の共有メニュー） ---- */
 async function share(it){
@@ -250,14 +275,17 @@ function render(){
     el.innerHTML = `<img alt="入荷品の写真"><div class="b">
       <div class="nm"></div>
       <input class="memo" placeholder="メモ（Teamsに一緒に送る文）" autocomplete="off">
-      <div class="acts"><span class="st ${stC}">${stT}</span>${it.status==="ng"?'<button class="re">再送</button>':""}<button class="del" aria-label="一覧から消す">✕</button><button class="share">Teams</button></div></div>`;
+      <input class="note" placeholder="気づき（自分用・Teamsには送らない）" autocomplete="off">
+      <div class="acts"><span class="st ${stC}">${stT}</span>${it.dirty?'<span class="st wait">メモ未反映</span>':""}${it.status==="ng"?'<button class="re">再送</button>':""}<button class="del" aria-label="一覧から消す">✕</button><button class="share">Teams</button></div></div>`;
     el.querySelector("img").src = it.url;
     el.querySelector("img").onclick = ()=>{ $("zoom").querySelector("img").src = it.url; $("zoom").hidden = false; };
     el.querySelector(".nm").textContent = `${p2(d.getHours())}:${p2(d.getMinutes())}　${it.name}`;
     if (it.err && it.status==="ng") el.querySelector(".nm").title = it.err;
     const mm = el.querySelector(".memo"); mm.value = it.memo || "";
-    mm.onchange = ()=>{ it.memo = mm.value.trim(); dbPut(it); };
-    el.querySelector(".share").onclick = ()=>{ it.memo = mm.value.trim(); share(it); dbPut(it); };
+    mm.onchange = ()=>{ it.memo = mm.value.trim(); edited(it); };
+    const nt = el.querySelector(".note"); nt.value = it.note || "";
+    nt.onchange = ()=>{ it.note = nt.value.trim(); edited(it); };
+    el.querySelector(".share").onclick = ()=>{ const v = mm.value.trim(); if (v !== (it.memo||"")){ it.memo = v; edited(it); } share(it); };
     const re = el.querySelector(".re"); if (re) re.onclick = ()=> sendQueue();
     el.querySelector(".del").onclick = ()=>{
       if (it.status !== "ok" && !confirm("まだDriveに送っていません。この携帯から消しますか？")) return;
@@ -300,6 +328,12 @@ $("cam").onchange = e => { const f = [...e.target.files]; e.target.value = ""; i
 $("pick").onchange = e => { const f = [...e.target.files]; e.target.value = ""; if (f.length) addFiles(f); };
 $("retryAll").onclick = ()=>{ if (![...ITEMS.values()].some(i=>i.status!=="ok")) return showMsg("未送信の写真はありません"); sendQueue(); };
 $("zoom").onclick = ()=> $("zoom").hidden = true;
+/* 気づきの定型文（押すと気づき欄に足される） */
+["部署違い","宛先不明","担当者不明","破損あり","数量違い","伝票なし"].forEach(t=>{
+  const b = document.createElement("button"); b.textContent = t;
+  b.onclick = ()=>{ const n = $("note"); n.value = n.value ? n.value + "、" + t : t; };
+  $("chips").append(b);
+});
 window.addEventListener("online", ()=>{ if (SET.auto) sendQueue(); });
 
 (async ()=>{
@@ -313,6 +347,7 @@ window.addEventListener("online", ()=>{ if (SET.auto) sendQueue(); });
   }
   render();
   if (SET.auto && SET.url && [...ITEMS.values()].some(i=>i.status!=="ok")) sendQueue();
+  else syncNotes();
 })();
 </script>
 </body>

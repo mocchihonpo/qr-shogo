@@ -34,20 +34,36 @@ function out_(o) {
   return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON);
 }
 
+// Driveの「説明」欄に入れる文
+function desc_(p) {
+  const a = [];
+  if (p.memo) a.push('メモ：' + p.memo);
+  if (p.note) a.push('気づき：' + p.note);
+  return a.join('\n');
+}
+
 // 写真を受け取って保存
 function doPost(e) {
   try {
     const p = JSON.parse(e.postData.contents);
     if (p.key !== KEY) return out_({ ok: false, error: '合言葉が違います' });
-    if (!p.data || !p.name) return out_({ ok: false, error: '写真が空です' });
+    if (!p.name) return out_({ ok: false, error: '名前が空です' });
     const name = String(p.name).replace(/[\\\/:*?"<>|]/g, '_');
     const dir = folder_();
+    // あとから書いたメモ・気づきをDriveの写真の「説明」に反映する
+    if (p.action === 'note') {
+      const hit = dir.getFilesByName(name);
+      if (!hit.hasNext()) return out_({ ok: false, error: 'Driveに写真が見つかりません' });
+      hit.next().setDescription(desc_(p));
+      return out_({ ok: true, name: name });
+    }
+    if (!p.data) return out_({ ok: false, error: '写真が空です' });
     // 同じ名前がもうあれば（再送のとき）保存し直さない
     const same = dir.getFilesByName(name);
     if (same.hasNext()) return out_({ ok: true, id: same.next().getId(), name: name, dup: true });
     const blob = Utilities.newBlob(Utilities.base64Decode(p.data), p.mime || 'image/jpeg', name);
     const file = dir.createFile(blob);
-    if (p.memo) file.setDescription(String(p.memo));
+    if (p.memo || p.note) file.setDescription(desc_(p));
     return out_({ ok: true, id: file.getId(), name: name });
   } catch (err) {
     return out_({ ok: false, error: String(err && err.message || err) });
