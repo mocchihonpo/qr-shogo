@@ -19,7 +19,7 @@
 
 const KEY = 'mocchi2026';      // 合言葉（携帯の設定と同じにする）
 const FOLDER_NAME = '納入品';   // 送り先フォルダの名前（入荷MasterSheetがあるフォルダ）
-const FOLDER_ID = '';          // 同じ名前のフォルダが複数あるときだけ、フォルダIDを入れる
+const FOLDER_ID = '1nfKxlCdTNgKTxVjGDoaPPYNy2clB5Gjb'; // 「納入品」フォルダのID（入っていればこちらが優先）
 
 function folder_() {
   if (FOLDER_ID) return DriveApp.getFolderById(FOLDER_ID);
