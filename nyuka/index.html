@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#121512">
+<title>入荷品カメラ</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+/* スマホ用：撮影 → Drive「入荷品」へ自動送信、担当者が分かったら共有ボタンでTeamsへ */
+:root{
+  --bg:#121512; --panel:#1c211c; --panel2:#232a23; --fg:#eef1ec; --muted:#9aa396; --line:#2f362f;
+  --accent:#7fc8a2; --accent-fg:#0d1a12; --warn:#c77700; --ng:#e5392f; --idle:#3a423a; --done:#2f6f4b;
+  --teams:#6264a7;
+  --f-ui:"BIZ UDPGothic","Hiragino Sans","Noto Sans JP",system-ui,sans-serif;
+  --f-code:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:var(--f-ui);font-size:15px;line-height:1.5}
+body{display:flex;flex-direction:column;overflow:hidden;padding-top:env(safe-area-inset-top,0px)}
+button,input,select{font:inherit;color:var(--fg)}
+button{font-weight:700;background:var(--panel);border:1.5px solid var(--line);border-radius:10px;padding:8px 12px;cursor:pointer;min-height:42px}
+button:focus-visible,input:focus-visible,select:focus-visible,label.shot:focus-within{outline:3px solid var(--accent);outline-offset:2px}
+button:disabled{opacity:.5}
+input,select{background:var(--panel2);border:1.5px solid var(--line);border-radius:10px;padding:8px 10px;min-height:42px;width:100%}
+.top{display:flex;align-items:center;gap:8px;padding:8px max(12px,env(safe-area-inset-right,0px)) 6px max(12px,env(safe-area-inset-left,0px))}
+.top h1{font-size:16px;margin:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.badge{font:700 13px var(--f-code);padding:4px 10px;border-radius:999px;background:var(--idle);white-space:nowrap}
+.badge.ok{background:var(--done)} .badge.wait{background:var(--warn)} .badge.ng{background:var(--ng)}
+main{flex:1;min-height:0;overflow-y:auto;padding:0 max(12px,env(safe-area-inset-right,0px)) 12px max(12px,env(safe-area-inset-left,0px))}
+.view{display:flex;flex-direction:column;gap:10px}
+.view[hidden]{display:none}
+label.shot{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:120px;border-radius:16px;background:var(--accent);color:var(--accent-fg);font-weight:700;font-size:22px;cursor:pointer;user-select:none}
+label.shot small{font-size:13px;font-weight:400}
+label.shot input,label.pick input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+label.pick{display:flex;align-items:center;justify-content:center;min-height:42px;border-radius:10px;border:1.5px solid var(--line);background:var(--panel);font-weight:700;cursor:pointer}
+.row{display:flex;gap:8px}.row>*{flex:1}
+.lbl{font-size:12px;color:var(--muted);margin:2px 0 -6px}
+.msg{border-radius:10px;padding:8px 12px;background:var(--panel);font-size:13px}
+.msg.ng{background:#4a1d1a}.msg.ok{background:#1d3a2a}
+.msg[hidden]{display:none}
+.day{font-size:12px;color:var(--muted);margin:6px 0 -4px;display:flex;justify-content:space-between}
+.list{display:flex;flex-direction:column;gap:8px}
+.item{display:flex;gap:10px;background:var(--panel);border:1.5px solid var(--line);border-radius:12px;padding:8px}
+.item img{width:84px;height:84px;object-fit:cover;border-radius:8px;background:#000;flex:0 0 auto;cursor:zoom-in}
+.item .b{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+.item .nm{font:700 13px var(--f-code);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item .memo{min-height:36px;padding:4px 8px;font-size:14px}
+.item .acts{display:flex;gap:6px;align-items:center}
+.st{font-size:12px;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--idle);white-space:nowrap}
+.st.ok{background:var(--done)}.st.wait{background:var(--warn)}.st.ng{background:var(--ng)}
+.acts button{min-height:36px;padding:4px 10px;font-size:13px}
+.acts .share{background:var(--teams);border-color:var(--teams);color:#fff;margin-left:auto}
+.empty{color:var(--muted);text-align:center;padding:24px 8px;font-size:14px}
+.note{font-size:13px;color:var(--muted)}
+.note a{color:var(--accent)}
+.sw{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--panel);border:1.5px solid var(--line);border-radius:10px;padding:8px 12px}
+.sw input{width:24px;height:24px;min-height:0;flex:0 0 auto}
+nav{display:flex;gap:6px;padding:6px max(12px,env(safe-area-inset-right,0px)) calc(6px + env(safe-area-inset-bottom,0px)) max(12px,env(safe-area-inset-left,0px));border-top:1px solid var(--line);background:var(--panel)}
+nav button{flex:1;background:transparent;border:0}
+nav button.on{background:var(--accent);color:var(--accent-fg)}
+.zoom{position:fixed;inset:0;background:rgba(0,0,0,.92);display:flex;align-items:center;justify-content:center;z-index:9}
+.zoom[hidden]{display:none}
+.zoom img{max-width:100%;max-height:100%}
+</style>
+</head>
+<body>
+<div class="top"><h1>入荷品カメラ</h1><span class="badge" id="badge">準備中</span></div>
+<main>
+  <section class="view" id="v-shot">
+    <label class="shot">📷 撮影する<small>撮ったら「入荷品」フォルダへ自動で送ります</small>
+      <input type="file" id="cam" accept="image/*" capture="environment">
+    </label>
+    <div class="row">
+      <label class="pick">🖼 写真を選ぶ<input type="file" id="pick" accept="image/*" multiple></label>
+      <button id="retryAll">未送信を送る</button>
+    </div>
+    <div class="lbl">次の写真に付けるメモ（形名・担当者など、空でもOK）</div>
+    <input id="memo" placeholder="例：FR-E820 竹中さん" autocomplete="off">
+    <div class="msg" id="msg" hidden></div>
+    <div id="list" class="list"></div>
+  </section>
+
+  <section class="view" id="v-set" hidden>
+    <div class="lbl">写真を受け取るApps ScriptのURL</div>
+    <input id="gasUrl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="url">
+    <div class="lbl">合言葉</div>
+    <input id="gasKey" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+    <label class="sw">撮ったらすぐDriveへ送る<input type="checkbox" id="auto"></label>
+    <div class="lbl">写真の大きさ</div>
+    <select id="size">
+      <option value="1600">標準（長辺1600px・軽い）</option>
+      <option value="2400">高画質（長辺2400px・文字が細かいとき）</option>
+      <option value="0">元のまま（重い）</option>
+    </select>
+    <div class="row"><button id="saveSet">保存</button><button id="test">つながるか試す</button></div>
+    <div class="msg" id="setMsg" hidden></div>
+    <p class="note">Teamsへ送るときは、写真の「Teams」ボタンを押して、出てきた一覧からTeamsを選びます。</p>
+    <p class="note">写真は、送信できたものも2日間はこの携帯の中に残ります（Teamsへ送り直せるように）。それより古いものは自動で消えます。Driveの写真は消えません。</p>
+    <p class="note">Apps Scriptのコードは <a href="gas.js" target="_blank" rel="noopener">gas.js</a> にあります。</p>
+    <button id="clearSent">送信済みの写真をこの携帯から消す</button>
+  </section>
+</main>
+<nav>
+  <button data-tab="shot" class="on">撮影</button>
+  <button data-tab="set">設定</button>
+</nav>
+<div class="zoom" id="zoom" hidden><img alt="拡大した写真"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const load = (k, d) => { try{ const v = JSON.parse(localStorage.getItem(k)); return v ?? d; }catch(e){ return d; } };
+const save = (k, v) => { try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} };
+let SET = load("nyuka.set", {url:"", key:"", auto:true, size:"1600"});
+const KEEP_MS = 2*24*3600*1000;
+
+/* ---- 写真の保管（IndexedDB。使えない携帯ではメモリだけ） ---- */
+let db = null;
+const ITEMS = new Map(); // name -> {name, blob, memo, at, status, err, url}
+function openDB(){
+  return new Promise(res=>{
+    try{
+      const r = indexedDB.open("nyuka-camera", 1);
+      r.onupgradeneeded = ()=> r.result.createObjectStore("photos", {keyPath:"name"});
+      r.onsuccess = ()=> res(r.result);
+      r.onerror = ()=> res(null);
+    }catch(e){ res(null); }
+  });
+}
+function dbPut(it){
+  if (!db) return;
+  try{ const {url, ...rec} = it; db.transaction("photos","readwrite").objectStore("photos").put(rec); }catch(e){}
+}
+function dbDel(name){ if (!db) return; try{ db.transaction("photos","readwrite").objectStore("photos").delete(name); }catch(e){} }
+function dbAll(){
+  return new Promise(res=>{
+    if (!db) return res([]);
+    try{ const r = db.transaction("photos").objectStore("photos").getAll(); r.onsuccess=()=>res(r.result||[]); r.onerror=()=>res([]); }catch(e){ res([]); }
+  });
+}
+
+/* ---- ファイル名：20261025-002142-001.jpg 形式 ---- */
+const p2 = n => String(n).padStart(2,"0");
+function newName(d){
+  const ymd = `${d.getFullYear()}${p2(d.getMonth()+1)}${p2(d.getDate())}`;
+  const c = load("nyuka.count", {d:"", n:0});
+  const n = c.d === ymd ? c.n + 1 : 1;
+  save("nyuka.count", {d:ymd, n});
+  let name = `${ymd}-${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}-${String(n).padStart(3,"0")}.jpg`;
+  while (ITEMS.has(name)) name = name.replace(/\.jpg$/, "x.jpg");
+  return name;
+}
+
+/* ---- 縮小してJPEGに ---- */
+function shrink(file, max){
+  return new Promise(res=>{
+    const u = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = ()=>{
+      let w = img.naturalWidth, h = img.naturalHeight;
+      const m = Number(max)||0;
+      if (m && Math.max(w,h) > m){ const s = m/Math.max(w,h); w = Math.round(w*s); h = Math.round(h*s); }
+      else if (!m && file.type === "image/jpeg"){ URL.revokeObjectURL(u); return res(file); }
+      const c = document.createElement("canvas"); c.width = w; c.height = h;
+      c.getContext("2d").drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(u);
+      c.toBlob(b => res(b || file), "image/jpeg", 0.85);
+    };
+    img.onerror = ()=>{ URL.revokeObjectURL(u); res(file); };
+    img.src = u;
+  });
+}
+
+async function addFiles(files){
+  const memo = $("memo").value.trim();
+  for (const f of files){
+    const at = Date.now();
+    const blob = await shrink(f, SET.size);
+    const it = {name:newName(new Date(at)), blob, memo, at, status:"wait", err:""};
+    ITEMS.set(it.name, it); dbPut(it);
+  }
+  $("memo").value = "";
+  render();
+  if (SET.auto) sendQueue();
+  else showMsg("撮りました。「未送信を送る」でDriveへ送れます");
+}
+
+/* ---- Driveへ送る（Apps Script経由） ---- */
+let sending = false;
+function toB64(blob){
+  return new Promise((res,rej)=>{ const r = new FileReader(); r.onload=()=>res(String(r.result).split(",")[1]); r.onerror=rej; r.readAsDataURL(blob); });
+}
+async function sendOne(it){
+  const body = JSON.stringify({key:SET.key||"", name:it.name, mime:"image/jpeg", memo:it.memo||"", data: await toB64(it.blob)});
+  const res = await fetch(SET.url, {method:"POST", body, redirect:"follow"});
+  const t = await res.text();
+  let j; try{ j = JSON.parse(t); }catch(e){ throw new Error("返事が読めません（URLが違うか、公開の設定が「全員」になっていない可能性）"); }
+  if (!j.ok) throw new Error(j.error || "送れませんでした");
+}
+async function sendQueue(){
+  if (sending) return;
+  if (!SET.url){ showMsg("設定タブで、Apps ScriptのURLと合言葉を保存してください", "ng"); return; }
+  sending = true;
+  try{
+    const todo = [...ITEMS.values()].filter(i => i.status !== "ok").sort((a,b)=>a.at-b.at);
+    for (const it of todo){
+      it.status = "sending"; it.err = ""; render();
+      try{ await sendOne(it); it.status = "ok"; }
+      catch(e){ it.status = "ng"; it.err = navigator.onLine === false ? "電波がありません" : String(e.message||e); }
+      dbPut(it); render();
+    }
+    const ng = todo.filter(i=>i.status==="ng");
+    if (ng.length) showMsg(`${ng.length}枚送れませんでした：${ng[0].err}`, "ng");
+    else if (todo.length) showMsg(`${todo.length}枚をDriveの「入荷品」に送りました`, "ok");
+  } finally { sending = false; }
+}
+
+/* ---- Teamsなどへ共有（携帯の共有メニュー） ---- */
+async function share(it){
+  const file = new File([it.blob], it.name, {type:"image/jpeg"});
+  const data = {files:[file], title:it.name};
+  if (it.memo) data.text = it.memo;
+  if (!navigator.canShare || !navigator.canShare({files:[file]})){
+    showMsg("この携帯のブラウザでは写真の共有ができません（ChromeかSafariで開いてみてください）", "ng"); return;
+  }
+  try{ await navigator.share(data); }
+  catch(e){ if (e.name !== "AbortError") showMsg("共有できませんでした："+(e.message||e.name), "ng"); }
+}
+
+/* ---- 表示 ---- */
+let msgT = 0;
+function showMsg(t, cls){ const m = $("msg"); m.hidden = false; m.className = "msg " + (cls||""); m.textContent = t; clearTimeout(msgT); msgT = setTimeout(()=>m.hidden=true, 6000); }
+const ST = {wait:["未送信","wait"], sending:["送信中…","wait"], ok:["Drive済み","ok"], ng:["失敗","ng"]};
+function render(){
+  const all = [...ITEMS.values()].sort((a,b)=>b.at-a.at);
+  const wait = all.filter(i=>i.status!=="ok").length, ng = all.some(i=>i.status==="ng");
+  const bd = $("badge");
+  bd.textContent = !SET.url ? "未設定" : wait ? `未送信 ${wait}` : "送信OK";
+  bd.className = "badge " + (!SET.url ? "" : ng ? "ng" : wait ? "wait" : "ok");
+  const L = $("list"); L.innerHTML = "";
+  if (!all.length){ L.innerHTML = '<div class="empty">まだ写真はありません</div>'; return; }
+  let lastDay = "";
+  for (const it of all){
+    const d = new Date(it.at), day = `${d.getMonth()+1}/${d.getDate()}`;
+    if (day !== lastDay){ lastDay = day; const h = document.createElement("div"); h.className = "day"; h.innerHTML = `<span>${day}</span><span>${all.filter(x=>{const y=new Date(x.at);return y.getMonth()===d.getMonth()&&y.getDate()===d.getDate();}).length}枚</span>`; L.append(h); }
+    if (!it.url) it.url = URL.createObjectURL(it.blob);
+    const el = document.createElement("div"); el.className = "item";
+    const [stT, stC] = ST[it.status] || ST.wait;
+    el.innerHTML = `<img alt="入荷品の写真"><div class="b">
+      <div class="nm"></div>
+      <input class="memo" placeholder="メモ（Teamsに一緒に送る文）" autocomplete="off">
+      <div class="acts"><span class="st ${stC}">${stT}</span>${it.status==="ng"?'<button class="re">再送</button>':""}<button class="del" aria-label="一覧から消す">✕</button><button class="share">Teams</button></div></div>`;
+    el.querySelector("img").src = it.url;
+    el.querySelector("img").onclick = ()=>{ $("zoom").querySelector("img").src = it.url; $("zoom").hidden = false; };
+    el.querySelector(".nm").textContent = `${p2(d.getHours())}:${p2(d.getMinutes())}　${it.name}`;
+    if (it.err && it.status==="ng") el.querySelector(".nm").title = it.err;
+    const mm = el.querySelector(".memo"); mm.value = it.memo || "";
+    mm.onchange = ()=>{ it.memo = mm.value.trim(); dbPut(it); };
+    el.querySelector(".share").onclick = ()=>{ it.memo = mm.value.trim(); share(it); dbPut(it); };
+    const re = el.querySelector(".re"); if (re) re.onclick = ()=> sendQueue();
+    el.querySelector(".del").onclick = ()=>{
+      if (it.status !== "ok" && !confirm("まだDriveに送っていません。この携帯から消しますか？")) return;
+      URL.revokeObjectURL(it.url); ITEMS.delete(it.name); dbDel(it.name); render();
+    };
+    L.append(el);
+  }
+}
+
+/* ---- 設定 ---- */
+function fillSet(){ $("gasUrl").value = SET.url||""; $("gasKey").value = SET.key||""; $("auto").checked = SET.auto !== false; $("size").value = SET.size||"1600"; }
+function readSet(){ SET = {url:$("gasUrl").value.trim(), key:$("gasKey").value.normalize("NFKC").trim(), auto:$("auto").checked, size:$("size").value}; save("nyuka.set", SET); }
+function setMsg(t, cls){ const m = $("setMsg"); m.hidden = false; m.className = "msg " + (cls||""); m.textContent = t; }
+$("saveSet").onclick = ()=>{ readSet(); render(); setMsg(SET.url ? "保存しました。「つながるか試す」で確認できます" : "URLが空です", SET.url ? "ok" : "ng"); };
+$("test").onclick = async ()=>{
+  readSet(); render();
+  if (!SET.url) return setMsg("URLを入れてください", "ng");
+  setMsg("確認中…");
+  try{
+    const u = new URL(SET.url); u.searchParams.set("key", SET.key||"");
+    const j = await (await fetch(u.toString(), {redirect:"follow"})).json();
+    if (j.ok) setMsg(`つながりました。送り先フォルダ：「${j.folder}」`, "ok");
+    else setMsg(j.error || "合言葉が違います", "ng");
+  }catch(e){ setMsg("つながりません。URLと、デプロイの「アクセスできるユーザー：全員」を確認してください", "ng"); }
+};
+$("clearSent").onclick = ()=>{
+  const sent = [...ITEMS.values()].filter(i=>i.status==="ok");
+  if (!sent.length) return setMsg("送信済みの写真はありません");
+  if (!confirm(`送信済みの${sent.length}枚をこの携帯から消します（Driveの写真は残ります）`)) return;
+  for (const it of sent){ URL.revokeObjectURL(it.url); ITEMS.delete(it.name); dbDel(it.name); }
+  render(); setMsg(`${sent.length}枚消しました`, "ok");
+};
+
+/* ---- タブ・入力 ---- */
+document.querySelectorAll("nav button").forEach(b => b.onclick = ()=>{
+  document.querySelectorAll("nav button").forEach(x => x.classList.toggle("on", x === b));
+  $("v-shot").hidden = b.dataset.tab !== "shot"; $("v-set").hidden = b.dataset.tab !== "set";
+});
+$("cam").onchange = e => { const f = [...e.target.files]; e.target.value = ""; if (f.length) addFiles(f); };
+$("pick").onchange = e => { const f = [...e.target.files]; e.target.value = ""; if (f.length) addFiles(f); };
+$("retryAll").onclick = ()=>{ if (![...ITEMS.values()].some(i=>i.status!=="ok")) return showMsg("未送信の写真はありません"); sendQueue(); };
+$("zoom").onclick = ()=> $("zoom").hidden = true;
+window.addEventListener("online", ()=>{ if (SET.auto) sendQueue(); });
+
+(async ()=>{
+  fillSet();
+  db = await openDB();
+  const now = Date.now();
+  for (const r of await dbAll()){
+    if (r.status === "ok" && now - r.at > KEEP_MS){ dbDel(r.name); continue; }
+    if (r.status === "sending") r.status = "wait";
+    ITEMS.set(r.name, r);
+  }
+  render();
+  if (SET.auto && SET.url && [...ITEMS.values()].some(i=>i.status!=="ok")) sendQueue();
+})();
+</script>
+</body>
+</html>
