@@ -69,7 +69,7 @@ nav button.on{background:var(--accent);color:var(--accent-fg)}
 <div class="top"><h1>入荷品カメラ</h1><span class="badge" id="badge">準備中</span></div>
 <main>
   <section class="view" id="v-shot">
-    <label class="shot">📷 撮影する<small>撮ったら「入荷品」フォルダへ自動で送ります</small>
+    <label class="shot">📷 撮影する<small>撮ったら「納入品」フォルダへ自動で送ります</small>
       <input type="file" id="cam" accept="image/*" capture="environment">
     </label>
     <div class="row">
@@ -212,7 +212,7 @@ async function sendQueue(){
     }
     const ng = todo.filter(i=>i.status==="ng");
     if (ng.length) showMsg(`${ng.length}枚送れませんでした：${ng[0].err}`, "ng");
-    else if (todo.length) showMsg(`${todo.length}枚をDriveの「入荷品」に送りました`, "ok");
+    else if (todo.length) showMsg(`${todo.length}枚をDriveの「納入品」に送りました`, "ok");
   } finally { sending = false; }
 }
 

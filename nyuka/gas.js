@@ -2,7 +2,7 @@
  * 入荷品カメラ_写真受け取り（Google Apps Script）
  *
  * 入荷品カメラ（https://mocchihonpo.github.io/qr-shogo/nyuka/）で撮った写真を
- * Google Drive の「入荷品」フォルダに保存するだけの中継です。
+ * Google Drive の「納入品」フォルダに保存するだけの中継です。
  *
  * 使い方
  *  1. script.google.com で「新しいプロジェクト」を作り、このコードを全部貼り付けて保存
@@ -18,7 +18,7 @@
  */
 
 const KEY = 'mocchi2026';      // 合言葉（携帯の設定と同じにする）
-const FOLDER_NAME = '入荷品';   // 送り先フォルダの名前
+const FOLDER_NAME = '納入品';   // 送り先フォルダの名前（入荷MasterSheetがあるフォルダ）
 const FOLDER_ID = '';          // 同じ名前のフォルダが複数あるときだけ、フォルダIDを入れる
 
 function folder_() {
