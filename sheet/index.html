@@ -504,14 +504,23 @@ async function decodeCanvas(cv){
 /* ================= カメラ ================= */
 let stream = null, running = false, tries = 0, flip = false, seenCode = "", seenAt = 0;
 const work = document.createElement("canvas");
+function camWhy(e){
+  const n = (e&&e.name)||"";
+  if (n==="NotAllowedError") return "カメラが「拒否」になっています。アドレス欄の「ぁあ」→Webサイトの設定→カメラを「許可」にして、もう一度タップ";
+  if (n==="NotReadableError"||n==="AbortError") return "他のアプリやタブがカメラを使っています。他のカメラ画面を閉じて、もう一度タップ";
+  if (n==="NotFoundError"||n==="OverconstrainedError") return "カメラが見つかりませんでした。もう一度タップ";
+  if (!navigator.mediaDevices) return "このブラウザではカメラが使えません。SafariかChromeで開き直してください";
+  return "もう一度タップしてください（"+n+"）";
+}
 async function startCam(){
   audio(); tone(1800,0,.12,"square",.16);
   $("tapStart").hidden = true;
+  if (!navigator.mediaDevices){ $("tapStart").hidden=false; $("tapStart").innerHTML="カメラを使えませんでした<small>"+camWhy(null)+"</small>"; return; }
   try{
     stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1920},height:{ideal:1080}},audio:false});
   }catch(e){
     try{ stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"},audio:false}); }
-    catch(e2){ $("tapStart").hidden = false; $("tapStart").innerHTML = "カメラを使えませんでした<small>カメラの使用を「許可」にして、もう一度タップしてください</small>"; return; }
+    catch(e2){ $("tapStart").hidden = false; $("tapStart").innerHTML = "カメラを使えませんでした<small>"+camWhy(e2)+"</small>"; return; }
   }
   const v = $("video"); v.srcObject = stream; await v.play().catch(()=>{});
   running = true; idleStatus(); loop();
@@ -721,7 +730,24 @@ document.querySelectorAll("nav button").forEach(b=> b.onclick = ()=>{ audio(); s
 $("scChange").onclick = ()=> setTab("list");
 $("tapStart").onclick = startCam;
 $("ocrBtn").onclick = ocrRead;
-document.addEventListener("visibilitychange", ()=>{ if(!document.hidden && ac) ac.resume(); });
+document.addEventListener("visibilitychange", ()=>{ if(!document.hidden){ if(ac) ac.resume(); camCheck(); } });
+window.addEventListener("pageshow", camCheck);
+/* カメラが止まっていたら（アプリ切替・画面ロック後など）自動で付け直す */
+function camDead(){
+  if (!stream) return false;
+  const t = stream.getVideoTracks()[0];
+  return !t || t.readyState==="ended";
+}
+async function camCheck(){
+  if (!running) return;
+  const v = $("video");
+  if (camDead()){
+    try{ stream.getTracks().forEach(t=>t.stop()); }catch(e){}
+    running = false; stream = null;
+    await startCam();
+  } else if (v.paused){ v.play().catch(()=>{}); }
+}
+setInterval(()=>{ if(running && !document.hidden && camDead()) camCheck(); }, 2000);
 $("manualForm").onsubmit = e=>{ e.preventDefault(); audio(); handle($("manualIn").value, false); $("manualIn").value = ""; };
 $("v-list").addEventListener("click", e=>{
   const b = e.target.closest("button"); if(!b) return;
