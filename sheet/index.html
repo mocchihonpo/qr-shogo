@@ -470,7 +470,9 @@ try{ if ("BarcodeDetector" in window) detector = new BarcodeDetector({formats:FO
 let zxOK = null;
 async function decodeCanvas(cv){
   const W = cv.width, H = cv.height, cx = W/2, cy = H/2;
-  const nearest = list => list.sort((p,q)=>p.d-q.d)[0];
+  // 1枚のラベルに複数のバーコードがあるときは、マシンNoの形（例 KAG-A2188 01）を優先し、次に画面の中央に近いもの
+  const isMno = t => /^[A-Z0-9]{3}-?[A-Z0-9]{5}([\s-]*\d{2,3})?$/i.test(String(t||"").trim()) ? 1 : 0;
+  const nearest = list => list.sort((p,q)=> (isMno(q.t)-isMno(p.t)) || (p.d-q.d))[0];
   if (detector){
     try{
       const r = await detector.detect(cv);
