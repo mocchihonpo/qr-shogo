@@ -581,11 +581,16 @@ async function ocrRead(){
   let cands = [], why = "";
   try{
     const w = await getTess();
+    // 向き（そのまま・右・左）×読み方（行ごと／ばらばらの文字）を順に試し、データにある番号が出たら止める
     for (const deg of [0, 90, 270]){
-      const { data } = await w.recognize(deg ? rotated(base, deg) : base);
-      cands = cands.concat(mnoCandidates(data.text).filter(c=>!cands.includes(c)));
-      const hit = pickKnown(cands);
-      if (hit){ done(hit); return; }
+      const img = deg ? rotated(base, deg) : base;
+      for (const psm of ["6", "11"]){
+        await w.setParameters({ tessedit_pageseg_mode: psm });
+        const { data } = await w.recognize(img);
+        cands = cands.concat(mnoCandidates(data.text).filter(c=>!cands.includes(c)));
+        const hit = pickKnown(cands);
+        if (hit){ done(hit); return; }
+      }
     }
   }catch(e){ why = "携帯での読み取りに失敗"; }
   if (SET.url){
