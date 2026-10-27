@@ -145,6 +145,8 @@ h1{color:var(--accent)}
 
   <!-- 一覧 -->
   <section class="view" id="v-list" hidden>
+    <button id="shukkaOnly" style="width:100%;padding:14px;font-size:17px;font-weight:700;background:var(--accent);color:var(--accent-fg);border-color:var(--accent)">📦 最新の出荷リストだけで照合する</button>
+    <p class="note" style="margin:6px 0 10px">会社のメールの出荷リスト（照合ブザーフォルダの一番新しいもの）の品物だけを出します。下の分け方で配送担当者を選んでから照合してください。</p>
     <p class="lbl">区分</p>
     <div class="chips" id="catChips"></div>
     <p class="lbl">期間（計上日）</p>
@@ -242,6 +244,7 @@ const NONGOODS = /労務費|人件費|諸経費|経費|管理費|車両費|レ�
 const CATS = [
   {id:"Y1", name:"新庄経由（Y1）"},
   {id:"A",  name:"52451A"},
+  {id:"S",  name:"出荷リスト（最新）"},
   {id:"X",  name:"52451X オフ在庫"},
   {id:"T",  name:"他社品"},
   {id:"M",  name:"手で追加"},
@@ -276,6 +279,7 @@ let ROWS = [];
 function rowId(r){ return r.cat==="M" ? "M|"+r["マシンNo"]+"|"+r.t : r["マシンNo"]+"|"+r["MSG"]; }
 function rebuild(){
   ROWS = DATA.rows.map(r=>{ const o = Object.assign({}, r); o.cat = classify(o); return o; })
+    .concat((DATA.shukka||[]).map(x=>({ "マシンNo":x["マシンNo"], "形名略称":x["形名"], "送り先名称":x["得意先名"], "担当者":x["担当者"], "数量":x["数量"], "オーダNo":x["オーダNo"], "客先注番":x["客先注番"], "MSG":"S", "計上日":x["出荷日"], "仕分処理":x["仕分処理"], "配送担当者":x["配送担当者"], "出場所":"", "倉庫":"", src:"出荷リスト", cat:"S" })))
     .concat(MANUAL.map(m=>({ "マシンNo":m.code, "形名略称":m.kata, "送り先名称":m.dest, "担当者":m.tan, "数量":m.qty, "オーダNo":"", "客先注番":"", "MSG":"", "計上日":m.day, "出場所":"", "倉庫":"", src:"手動", cat:"M", t:m.t })));
   ROWS.forEach(r=>{ r.id = rowId(r); r.ex = isExcluded(r); r.key = r.cat==="X" ? norm(r["形名略称"]) : norm(r["マシンNo"]); });
 }
@@ -288,7 +292,7 @@ function sinceDate(){
 // 区分・期間で絞った行（グループ選択の前）
 function baseRows(){
   const since = sinceDate();
-  return ROWS.filter(r=> !r.ex && VIEW.cats.includes(r.cat) && (VIEW.days==="today" ? (r.src==="当日"||r.cat==="M") : (!since || r.cat==="M" || String(r["計上日"]).slice(0,10) >= since)));
+  return ROWS.filter(r=> !r.ex && VIEW.cats.includes(r.cat) && (VIEW.days==="today" ? (r.src==="当日"||r.cat==="M"||r.cat==="S") : (!since || r.cat==="M" || r.cat==="S" || String(r["計上日"]).slice(0,10) >= since)));
 }
 /* 分け方 */
 const GROUPS = {
@@ -658,7 +662,7 @@ async function loadFromGas(){
     const res = await fetch(u.toString(), {redirect:"follow"});
     const j = await res.json();
     if (j.error) throw new Error(j.error);
-    DATA = {at:j.at, rows:j.rows||[], stock:j.stock||[], from:"シート"}; save(K.data, DATA); save(K.set, SET);
+    DATA = {at:j.at, rows:j.rows||[], stock:j.stock||[], shukka:j.shukka||[], from:"シート"}; save(K.data, DATA); save(K.set, SET);
     if (j.warn) showErr(j.warn);
     afterLoad();
   }catch(e){ showErr("読み込めませんでした：" + (e.message||e)); }
@@ -726,6 +730,10 @@ $("v-list").addEventListener("click", e=>{
   else if (b.dataset.by){ VIEW.by = b.dataset.by; VIEW.grp = null; }
   else if ("grp" in b.dataset){ const g = b.dataset.grp; VIEW.grp = g==="" ? null : g; }
   else if (b.id==="toScan"){ setTab("scan"); return; }
+  else if (b.id==="shukkaOnly"){
+    if (!(DATA.shukka||[]).length){ alert("出荷リストのデータがありません。パソコンで出荷リストの取り込みをしてから、「設定」で「シートから読み込む」を押してください"); return; }
+    VIEW = {cats:["S"], days:"all", by:"haiso", grp:null};
+  }
   saveView(); renderList();
 });
 $("lbUndone").onclick = ()=>{ lbMode="undone"; lbSel = new Set(labelRows().map(r=>r.id)); renderLabel(); };
