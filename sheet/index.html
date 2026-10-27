@@ -287,6 +287,8 @@ function baseRows(){
 }
 /* 分け方 */
 const GROUPS = {
+  haiso: {name:"配送担当者", f:r=> r["配送担当者"] || "（出荷リストに無し）"},
+  shiwake:{name:"仕分処理", f:r=> r["仕分処理"] || "（出荷リストに無し）"},
   tan:   {name:"担当者",   f:r=> r["担当者"] || "（担当なし）"},
   order: {name:"オーダNo", f:r=> r["オーダNo"] || "（オーダNoなし）"},
   dest:  {name:"送り先",   f:r=> r["送り先名称"] || "（送り先なし）"},
@@ -388,7 +390,7 @@ function renderList(){
 }
 function itemHtml(r){
   const main = r.cat==="X" ? r["形名略称"] : r["マシンNo"];
-  const sub = [r.cat==="X" ? "" : r["形名略称"], r["送り先名称"], r["担当者"]&&("担当"+r["担当者"]), r["オーダNo"], String(r["計上日"]).slice(5,10)].filter(Boolean).join("　");
+  const sub = [r.cat==="X" ? "" : r["形名略称"], r["送り先名称"], r["担当者"]&&("担当"+r["担当者"]), r["オーダNo"], String(r["計上日"]).slice(5,10), r["仕分処理"], r["配送担当者"]].filter(Boolean).join("　");
   return `<li class="item ${DONE[r.id]?"done":""}"><span class="ck">${DONE[r.id]?"✓":""}</span><span style="min-width:0"><span class="m">${esc(main)}</span><div class="s">${esc(sub)}</div></span><span class="q">×${esc(r["数量"])}</span></li>`;
 }
 
@@ -406,7 +408,7 @@ function findRows(code, pool){
   if (hit.length) return {hit, by:"形名"};
   return {hit:[], by:""};
 }
-function describe(r){ return [catName(r.cat), r["送り先名称"], r["担当者"]&&("担当"+r["担当者"])].filter(Boolean).join("　"); }
+function describe(r){ return [catName(r.cat), r["送り先名称"], r["担当者"]&&("担当"+r["担当者"]), r["仕分処理"], r["配送担当者"]].filter(Boolean).join("　"); }
 function handle(code, fromCam){
   code = (code||"").trim(); if(!code) return;
   const now = Date.now();
