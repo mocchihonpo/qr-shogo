@@ -136,6 +136,7 @@ h1{color:var(--accent)}
     </div>
     <div class="status" id="status" role="status" aria-live="polite"><b id="sBig">準備中</b><span id="sSub"></span></div>
     <div class="row" id="afterNg" hidden><button id="addBtn">この番号を追加する</button></div>
+    <div class="row"><button id="ocrBtn" style="width:100%">🔤 文字で読む（トナミなど）</button></div>
     <form class="manual" id="manualForm">
       <input id="manualIn" placeholder="番号を手で入力（マシンNo・形名・注文番号）" autocomplete="off" autocapitalize="characters">
       <button>照合</button>
@@ -541,6 +542,75 @@ async function loop(){
   setTimeout(loop, 60);
 }
 
+/* ================= 文字で読む（OCR） ================= */
+// ① 携帯の中で読む（Tesseract）→ ② 見つからなければ中継スクリプト経由でAIに読ませる
+function mnoCandidates(text){
+  const t = String(text||"").toUpperCase().replace(/[‐－ー—–]/g,"-");
+  const re = /([A-Z0-9]{3})\s*-\s*([A-Z0-9]{5})/g, out = []; let m;
+  while ((m = re.exec(t))){ const c = m[1]+"-"+m[2]; if (!out.includes(c)) out.push(c); }
+  return out;
+}
+function grabFrame(maxSide){
+  const v = $("video"), W = v.videoWidth, H = v.videoHeight, k = Math.min(1, maxSide/Math.max(W,H));
+  const c = document.createElement("canvas"); c.width = Math.round(W*k); c.height = Math.round(H*k);
+  c.getContext("2d").drawImage(v,0,0,c.width,c.height); return c;
+}
+function rotated(src, deg){
+  const c = document.createElement("canvas"); c.width = src.height; c.height = src.width;
+  const g = c.getContext("2d"); g.translate(c.width/2, c.height/2); g.rotate(deg*Math.PI/180);
+  g.drawImage(src, -src.width/2, -src.height/2); return c;
+}
+function loadScript(src){ return new Promise((ok,ng)=>{ const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = ng; document.head.appendChild(s); }); }
+let tessWorker = null;
+async function getTess(){
+  if (tessWorker) return tessWorker;
+  if (!window.Tesseract) await loadScript("https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js");
+  tessWorker = await Tesseract.createWorker("eng");
+  await tessWorker.setParameters({ tessedit_char_whitelist:"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-", tessedit_pageseg_mode:"11" });
+  return tessWorker;
+}
+const pickKnown = list => list.find(c => findRows(c, ROWS).hit.length) || null;
+let ocrBusy = false;
+async function ocrRead(){
+  if (ocrBusy) return;
+  const v = $("video");
+  if (!running || !v.videoWidth){ status("var(--warn)","#fff","先にカメラを開始してください","カメラ画面をタップしてから押してください"); return; }
+  ocrBusy = true; const btn = $("ocrBtn"); btn.disabled = true; btn.textContent = "文字を読んでいます…";
+  status("var(--idle)","#fff","文字を読んでいます…","ラベルを動かさずに、そのまま待ってください");
+  const base = grabFrame(1400);
+  let cands = [], why = "";
+  try{
+    const w = await getTess();
+    for (const deg of [0, 90, 270]){
+      const { data } = await w.recognize(deg ? rotated(base, deg) : base);
+      cands = cands.concat(mnoCandidates(data.text).filter(c=>!cands.includes(c)));
+      const hit = pickKnown(cands);
+      if (hit){ done(hit); return; }
+    }
+  }catch(e){ why = "携帯での読み取りに失敗"; }
+  if (SET.url){
+    try{
+      status("var(--idle)","#fff","AIで読み直しています…","数秒かかります");
+      const data = base.toDataURL("image/jpeg", 0.85).split(",")[1];
+      const res = await fetch(SET.url, {method:"POST", redirect:"follow", body: JSON.stringify({key:SET.key||"", action:"ocr", data})});
+      const j = await res.json();
+      if (j.error) throw new Error(j.error);
+      const ai = (j.codes||[]).map(c=>mnoCandidates(c)[0]).filter(Boolean);
+      const hit = pickKnown(ai);
+      if (hit){ done(hit); return; }
+      cands = cands.concat(ai.filter(c=>!cands.includes(c)));
+    }catch(e){ why = "AI：" + (e.message||e); }
+  }
+  // 一覧に無い番号：マシンNoらしい形（例 KBJ-B4849）なら、その番号で照合して「見つからない」と知らせる
+  const likely = cands.find(c => /^[A-Z0-9]{3}-[A-Z][0-9]{4}$/.test(c));
+  if (likely){ done(likely); return; }
+  sNG(); vib([80,60,80]);
+  status("var(--ng)","#fff","マシンNoが読めませんでした", "ラベルのマシンNoを枠いっぱいに映して、もう一度押してください" + (cands.length ? "（読めた文字："+cands.slice(0,3).join("、")+"）" : "") + (why ? "（"+why+"）" : ""));
+  finish();
+  function done(code){ $("manualIn").value = code; handle(code, false); finish(); }
+  function finish(){ ocrBusy = false; btn.disabled = false; btn.textContent = "🔤 文字で読む（トナミなど）"; }
+}
+
 /* ================= ラベル ================= */
 let lbMode = "undone", lbSel = new Set();
 function labelRows(){ return scopeRows().filter(r=> lbMode==="all" || !DONE[r.id]); }
@@ -641,6 +711,7 @@ function saveView(){ save(K.view, VIEW); }
 document.querySelectorAll("nav button").forEach(b=> b.onclick = ()=>{ audio(); setTab(b.dataset.tab); });
 $("scChange").onclick = ()=> setTab("list");
 $("tapStart").onclick = startCam;
+$("ocrBtn").onclick = ocrRead;
 document.addEventListener("visibilitychange", ()=>{ if(!document.hidden && ac) ac.resume(); });
 $("manualForm").onsubmit = e=>{ e.preventDefault(); audio(); handle($("manualIn").value, false); $("manualIn").value = ""; };
 $("v-list").addEventListener("click", e=>{
