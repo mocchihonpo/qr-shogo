@@ -404,6 +404,9 @@ function findRows(code, pool){
   const n = norm(code), b = mbase(code);
   let hit = pool.filter(r=> r.cat!=="X" && (norm(r["マシンNo"])===n || (b.length===8 && mbase(r["マシンNo"])===b)));
   if (hit.length) return {hit, by:"マシンNo"};
+  // 箱のバーコード（三菱のマシンNo。末尾の01・011などは無視）→ 出荷リストで突き合わせた三菱マシンNo
+  hit = pool.filter(r=> String(r["三菱マシンNo"]||"").split(/\s+/).some(m=> m && (norm(m)===n || (b.length===8 && mbase(m)===b))));
+  if (hit.length) return {hit, by:"三菱マシンNo（箱のバーコード）"};
   hit = pool.filter(r=> norm(r["形名略称"])===n && r.cat==="X");
   if (hit.length) return {hit, by:"形名（52451X）"};
   hit = pool.filter(r=> norm(r["オーダNo"])===n || norm(r["客先注番"])===n);
