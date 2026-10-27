@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#121512">
+<meta name="theme-color" content="#17120e">
 <title>入荷品カメラ</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=JetBrains+Mono:wght@500;700&display=swap">
 <style>
 /* スマホ用：撮影 → Drive「入荷品」へ自動送信、担当者が分かったら共有ボタンでTeamsへ */
 :root{
-  --bg:#121512; --panel:#1c211c; --panel2:#232a23; --fg:#eef1ec; --muted:#9aa396; --line:#2f362f;
-  --accent:#7fc8a2; --accent-fg:#0d1a12; --warn:#c77700; --ng:#e5392f; --idle:#3a423a; --done:#2f6f4b;
+  --bg:#17120e; --panel:#221b15; --panel2:#2b221a; --fg:#eef1ec; --muted:#b0a194; --line:#3b3027;
+  --accent:#f2a65a; --accent-fg:#2a1504; --warn:#c77700; --ng:#e5392f; --idle:#3a423a; --done:#2f6f4b;
   --teams:#6264a7;
   --f-ui:"BIZ UDPGothic","Hiragino Sans","Noto Sans JP",system-ui,sans-serif;
   --f-code:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
@@ -66,6 +66,10 @@ nav button.on{background:var(--accent);color:var(--accent-fg)}
 .zoom{position:fixed;inset:0;background:rgba(0,0,0,.92);display:flex;align-items:center;justify-content:center;z-index:9}
 .zoom[hidden]{display:none}
 .zoom img{max-width:100%;max-height:100%}
+
+/* ページごとの色の目印：上の帯と題名の色 */
+body{box-shadow:inset 0 6px 0 var(--accent)}
+h1{color:var(--accent)}
 </style>
 </head>
 <body>
