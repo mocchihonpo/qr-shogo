@@ -207,7 +207,7 @@ h1{color:var(--accent)}
   </section>
 </main>
 
-<div class="splash" id="splash" aria-hidden="true"><b id="spBig"></b><span id="spMid"></span><small id="spSmall"></small></div>
+<div class="splash" id="splash" style="display:none" aria-hidden="true"><b id="spBig"></b><span id="spMid"></span><small id="spSmall"></small></div>
 
 <dialog id="addDlg">
   <form method="dialog" id="addForm">
@@ -353,11 +353,13 @@ function status(bg, fg, big, sub){
   $("sBig").textContent = big; $("sSub").textContent = sub||"";
   s.classList.remove("flash"); void s.offsetWidth; s.classList.add("flash");
 }
-let spT = null;
+let spT = null, spT2 = null;
 function splash(bg, fg, big, mid, small){
   const s = $("splash"); s.style.background = bg; s.style.color = fg;
   $("spBig").textContent = big; $("spMid").textContent = mid; $("spSmall").textContent = small||"";
-  s.classList.add("show"); clearTimeout(spT); spT = setTimeout(()=>s.classList.remove("show"), 1300);
+  clearTimeout(spT); clearTimeout(spT2); s.style.display = "flex"; void s.offsetWidth; s.classList.add("show");
+  /* 消えたあとは要素ごと隠して色も外す（iPhoneのSafariが上の時計・下のアドレス欄にこの色を残さないように） */
+  spT = setTimeout(()=>{ s.classList.remove("show"); spT2 = setTimeout(()=>{ s.style.display = "none"; s.style.background = ""; }, 200); }, 1300);
 }
 function renderScope(){
   groupList();
