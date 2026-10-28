@@ -339,6 +339,7 @@ async function startCam(){
   }
   const v = $("video"); v.srcObject = stream; await v.play().catch(()=>{});
   running = true; idleStatus(); loop();
+  setTimeout(()=>{ if (stream && !$("video").videoWidth){ $("tapStart").hidden=false; $("tapStart").innerHTML="カメラの映像が来ません<small>照合ブザーの他のページ（QR・シート）を開いているタブを閉じてから、ここをタップしてください</small>"; try{stream.getTracks().forEach(t=>t.stop());}catch(e){} stream=null; running=false; } }, 4000);
 }
 async function loop(){
   if (!running) return;
@@ -371,7 +372,17 @@ async function loop(){
   setTimeout(loop, 60);
 }
 $("tapStart").onclick = startCam;
-document.addEventListener("visibilitychange", ()=>{ if(!document.hidden){ if(ac) ac.resume(); camCheck(); } });
+/* iPhoneはカメラを同時に1つのタブしか使えないので、見ていない間はカメラを手放し、戻ったら付け直す */
+let wantCam = false;
+document.addEventListener("visibilitychange", ()=>{
+  if (document.hidden){
+    if (running){ wantCam = true; running = false; try{ stream.getTracks().forEach(t=>t.stop()); }catch(e){} stream = null; }
+  } else {
+    if(ac) ac.resume();
+    if (wantCam){ wantCam = false; startCam(); } else camCheck();
+  }
+});
+window.addEventListener("pagehide", ()=>{ try{ stream && stream.getTracks().forEach(t=>t.stop()); }catch(e){} });
 window.addEventListener("pageshow", camCheck);
 /* カメラが止まっていたら（アプリ切替・画面ロック後など）自動で付け直す */
 function camDead(){
