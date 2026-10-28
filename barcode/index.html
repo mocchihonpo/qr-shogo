@@ -72,6 +72,10 @@ nav button{border:0;border-radius:0;background:transparent;color:var(--muted);di
 nav button svg{width:24px;height:24px}
 nav button.on{color:var(--accent)}
 nav button.on.reg{color:#7fb0ff}
+.bulk{background:var(--panel);border:1.5px solid var(--line);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px}
+.bulk textarea{width:100%;min-height:150px;font:13px var(--f-code);background:#1d1030;color:var(--fg);border:1.5px solid var(--line);border-radius:8px;padding:8px}
+.bulk p{margin:0;font-size:12px;color:var(--muted)}
+.chip .nm{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:13em}
 [hidden]{display:none!important}
 @media (prefers-reduced-motion: reduce){.status.flash{animation:none}.splash{transition:none}}
 
@@ -104,6 +108,13 @@ h1{color:var(--accent)}
 
     <div id="regTools" class="view" style="flex:0 0 auto">
       <div class="reglist" id="reglist"></div>
+      <button id="bulkOpen">📋 一覧からまとめて登録</button>
+      <div class="bulk" id="bulkBox" hidden>
+        <p>1行に「部品コード,品名」で貼り付けてください（品名は無くても可）。コードの空白は自動で詰めます。</p>
+        <textarea id="bulkText" placeholder="3240101003,SC-J3ENCBL3M-A1-H"></textarea>
+        <button id="bulkSC">SCケーブル15種を入れる</button>
+        <div class="row"><button id="bulkGo">まとめて登録</button><button id="bulkClose">閉じる</button></div>
+      </div>
       <button class="next" id="toCompare">登録おわり → 探すへ</button>
     </div>
 
@@ -151,8 +162,29 @@ const PALETTE = [
   {name:"白",     bg:"#f2f2f2", fg:"#111"},
 ];
 const col = i => PALETTE[i % PALETTE.length];
-const KR = "bcbz-reg-v1", KH = "bcbz-hist-v1";
-let reg = [], hist = [];
+const KR = "bcbz-reg-v1", KH = "bcbz-hist-v1", KN = "bcbz-names-v1";
+let reg = [], hist = [], names = {};
+try{ names = JSON.parse(localStorage.getItem(KN)||"{}")||{}; }catch(e){ names={}; }
+function saveNames(){ try{ localStorage.setItem(KN, JSON.stringify(names)); }catch(e){} }
+/* 照合用：空白と * を消して大文字に（古いラベルの「324 010 1003」やCode39の*に対応） */
+const norm = s => String(s||"").replace(/[\s　*]/g,"").toUpperCase();
+const findReg = code => { const k = norm(code); return reg.findIndex(r=>norm(r)===k); };
+const nm = code => names[norm(code)] || "";
+const SC_LIST = `3240101003,SC-J3ENCBL3M-A1-H
+3240001003,SC-J3ENCBL3M-A1-L
+3240101004,SC-J3ENCBL4M-A1-H
+3240001004,SC-J3ENCBL4M-A1-L
+3240101006,SC-J3ENCBL6M-A1-H
+3240401003,SC-PWS1CBL3M-A1-H
+3240301003,SC-PWS1CBL3M-A1-L
+3240402003,SC-PWS1CBL3M-A2-H
+3240401004,SC-PWS1CBL4M-A1-H
+3240301004,SC-PWS1CBL4M-A1-L
+3240401006,SC-PWS1CBL6M-A1-H
+3240701003,SC-BKS1CBL3M-A1-H
+3240702003,SC-BKS1CBL3M-A2-H
+3240701004,SC-BKS1CBL4M-A1-H
+3200321005,SC-HAJ3ENM3C1M`;
 try{ reg = JSON.parse(localStorage.getItem(KR)||"[]"); if(!Array.isArray(reg)) reg=[]; }catch(e){ reg=[]; }
 try{ hist = JSON.parse(localStorage.getItem(KH)||"[]"); if(!Array.isArray(hist)) hist=[]; }catch(e){ hist=[]; }
 function saveReg(){ try{ localStorage.setItem(KR, JSON.stringify(reg)); }catch(e){} }
@@ -207,8 +239,9 @@ function renderReg(){
   const el = $("reglist");
   if (!reg.length){ el.innerHTML = `<span class="empty">登録はまだありません</span>`; }
   else {
-    el.innerHTML = reg.map((c,i)=>`<div class="chip"><span class="n" style="background:${col(i).bg};color:${col(i).fg}">${i+1} ${col(i).name}</span><span class="c"></span><button data-del="${i}" aria-label="${i+1}番を消す">×</button></div>`).join("");
+    el.innerHTML = reg.map((c,i)=>`<div class="chip"><span class="n" style="background:${col(i).bg};color:${col(i).fg}">${i+1} ${col(i).name}</span><span class="c"></span><span class="nm"></span><button data-del="${i}" aria-label="${i+1}番を消す">×</button></div>`).join("");
     el.querySelectorAll(".chip .c").forEach((n,i)=> n.textContent = reg[i]);
+    el.querySelectorAll(".chip .nm").forEach((n,i)=> n.textContent = nm(reg[i]));
   }
   $("cReg").textContent = reg.length;
   $("toCompare").hidden = !reg.length;
@@ -225,7 +258,7 @@ function renderHist(){
     li.children[0].textContent = `${d.getMonth()+1}/${d.getDate()} ${d.toTimeString().slice(0,8)}`;
     if (h.r>=0){ li.children[1].textContent = `一致 ${h.r+1}番 ${col(h.r).name}`; li.children[1].style.background = col(h.r).bg; li.children[1].style.color = col(h.r).fg; }
     else { li.children[1].textContent = "不一致"; li.children[1].style.background = "var(--ng)"; li.children[1].style.color = "#fff"; }
-    li.children[2].textContent = h.c;
+    li.children[2].textContent = h.c + (nm(h.c) ? "　" + nm(h.c) : "");
   });
 }
 let sess = {ok:0, ng:0};
@@ -256,7 +289,7 @@ function handle(code, fromCam){
   if (fromCam && code===lastCode && now-lastAt < 2500) return;   // 同じコードの連続反応を防ぐ
   lastCode = code; lastAt = now;
   if (tab==="reg"){
-    const i = reg.indexOf(code);
+    const i = findReg(code);
     if (i>=0){ sDup(); vib(60); status("var(--warn)","#fff", `このコードは ${i+1}番（${col(i).name}）と同じ内容です`, `読んだ内容：${code}`); return; }
     reg.push(code); saveReg(); renderReg();
     const n = reg.length-1, c = col(n);
@@ -266,13 +299,13 @@ function handle(code, fromCam){
     return;
   }
   if (tab==="cmp"){
-    const i = reg.indexOf(code);
+    const i = findReg(code), name = i>=0 ? nm(reg[i]) : "";
     hist.unshift({t:now, c:code, r:i}); saveHist();
     if (i>=0){
       const c = col(i);
       sMatch(i); vib(150); sess.ok++;
-      splash(c.bg, c.fg, `${i+1}番`, `${c.name}　一致`, code);
-      status(c.bg, c.fg, `一致　${i+1}番（${c.name}）`, code);
+      splash(c.bg, c.fg, `${i+1}番`, name || `${c.name}　一致`, name ? `${c.name}　一致　${code}` : code);
+      status(c.bg, c.fg, `一致　${i+1}番（${c.name}）`, name ? `${name}　${code}` : code);
     } else {
       sNG(); vib([300,100,300]); sess.ng++;
       splash("var(--ng)", "#fff", "×", "不一致", code);
@@ -418,15 +451,34 @@ $("resetBtn").onclick = ()=>{
 $("resetNo").onclick = ()=> $("resetConfirm").hidden = true;
 $("resetYes").onclick = ()=>{
   if (tab==="hist"){ hist = []; saveHist(); renderHist(); }
-  else { reg = []; saveReg(); renderReg(); lastCode = ""; if (tab!=="reg") setTab("reg"); if (running) idleStatus(); else status("var(--idle)","#fff","登録を消しました","カメラ画面をタップして始めてください"); }
+  else { reg = []; names = {}; saveReg(); saveNames(); renderReg(); lastCode = ""; if (tab!=="reg") setTab("reg"); if (running) idleStatus(); else status("var(--idle)","#fff","登録を消しました","カメラ画面をタップして始めてください"); }
   $("resetConfirm").hidden = true;
+};
+/* ---------- 一覧からまとめて登録 ---------- */
+$("bulkOpen").onclick = ()=>{ $("bulkBox").hidden = false; $("bulkOpen").hidden = true; };
+$("bulkClose").onclick = ()=>{ $("bulkBox").hidden = true; $("bulkOpen").hidden = false; };
+$("bulkSC").onclick = ()=>{ $("bulkText").value = SC_LIST; };
+$("bulkGo").onclick = ()=>{
+  let add = 0, dup = 0;
+  $("bulkText").value.split(/\r?\n/).forEach(line=>{
+    const p = line.split(/[,\t]/).map(x=>x.trim());
+    const code = norm(p[0]);
+    if (!code || !/[0-9]/.test(code)) return;          // 見出し行・空行は飛ばす
+    if (p[1]) names[code] = p[1];
+    if (findReg(code) >= 0){ dup++; return; }
+    reg.push(code); add++;
+  });
+  saveReg(); saveNames(); renderReg(); lastCode = "";
+  $("bulkBox").hidden = true; $("bulkOpen").hidden = false;
+  sReg(); vib(100);
+  status("var(--reg)","#fff", `${add}件を登録しました`, (dup?`${dup}件はすでに登録済みでした。`:"") + `合計 ${reg.length}件。「探すへ進む」で照合できます`);
 };
 $("csvBtn").onclick = ()=>{
   const q = s => `"${String(s).replace(/"/g,'""')}"`;
-  const rows = [["日時","結果","番号","色","コードの内容"]].concat(hist.map(h=>{
+  const rows = [["日時","結果","番号","色","コードの内容","品名"]].concat(hist.map(h=>{
     const d = new Date(h.t);
     const ts = `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()} ${d.toTimeString().slice(0,8)}`;
-    return [ts, h.r>=0?"一致":"不一致", h.r>=0?h.r+1:"", h.r>=0?col(h.r).name:"", h.c];
+    return [ts, h.r>=0?"一致":"不一致", h.r>=0?h.r+1:"", h.r>=0?col(h.r).name:"", h.c, nm(h.c)];
   }));
   const csv = "﻿" + rows.map(r=>r.map(q).join(",")).join("\r\n");
   const a = document.createElement("a");
