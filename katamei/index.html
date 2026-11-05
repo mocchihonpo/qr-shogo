@@ -30,9 +30,9 @@ button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 .confirm button{min-height:36px;padding:4px 12px}
 main{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;padding:0 max(12px,env(safe-area-inset-right,0px)) 8px max(12px,env(safe-area-inset-left,0px))}
 .view{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px}
-.cam{position:relative;flex:0 0 30vh;min-height:170px;border-radius:14px;overflow:hidden;background:#000}
+.cam{position:relative;flex:0 0 36vh;min-height:220px;border-radius:14px;overflow:hidden;background:#000}
 .cam video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
-.cam .frame{position:absolute;left:50%;top:50%;width:88%;aspect-ratio:3/1;transform:translate(-50%,-50%);border:3px solid rgba(255,255,255,.85);border-radius:14px;pointer-events:none}
+.cam .frame{position:absolute;left:50%;top:50%;width:min(64%,46vh);aspect-ratio:1/1;transform:translate(-50%,-50%);border:3px solid rgba(255,255,255,.85);border-radius:14px;pointer-events:none}
 .cam .seen{position:absolute;left:8px;right:8px;top:8px;padding:5px 10px;border-radius:8px;background:rgba(0,0,0,.7);color:#fff;font:700 13px var(--f-code);word-break:break-all;text-align:center}
 .cam .diag{position:absolute;left:0;right:0;bottom:0;padding:3px 8px;font:11px var(--f-code);color:#fff;background:rgba(0,0,0,.45)}
 .cam .tap{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:rgba(0,0,0,.72);color:#fff;border:0;border-radius:0;font-size:20px;width:100%}
@@ -232,7 +232,7 @@ function renderHist(){
   const ul = $("hist");
   if (!hist.length){ ul.innerHTML = `<li><span class="t">--:--</span><span class="tag" style="background:var(--idle)">なし</span><span class="c">照合するとここに残ります</span></li>`; return; }
   ul.innerHTML = hist.map(()=>`<li><span class="t"></span><span class="tag"></span><span class="c"></span></li>`).join("");
-  const C = {"一致":"var(--ok)","札のみ":"var(--accent)","手で済":"var(--ok)","不一致":"var(--ng)","対象外":"var(--ng)","済み":"var(--warn)","戻し":"var(--warn)"};
+  const C = {"品物":"var(--idle)","一致":"var(--ok)","札のみ":"var(--accent)","手で済":"var(--ok)","不一致":"var(--ng)","対象外":"var(--ng)","済み":"var(--warn)","戻し":"var(--warn)"};
   [...ul.children].forEach((li,k)=>{ const h=hist[k], d=new Date(h.t);
     li.children[0].textContent = d.toTimeString().slice(0,5);
     li.children[1].textContent = h.r; li.children[1].style.background = C[h.r]||"var(--idle)";
@@ -250,7 +250,7 @@ function setTab(t){
 }
 function idleStatus(){
   if (cur) status("var(--idle)", cur.code, "札のバーコードを読むか、行の「済」を押してください");
-  else status("var(--idle)", "品物のバーコードを読んでください", "形名コードが分かると、リストの行が出ます");
+  else status("var(--idle)", "品物のQRコードを読んでください", "形名コードが分かると、リストの行が出ます。続けて札のバーコードを読みます");
 }
 
 /* ---------- 読み取った時の処理 ---------- */
@@ -297,10 +297,10 @@ function handle(code, fromCam){
   // 2) 品物のバーコード（形名コード・型式・部品コード）
   const g = findGroup(s);
   if (g){
-    cur = g; hitNo = null; armed = true; save();
+    cur = g; hitNo = null; armed = true; log("品物", {no:"",g:GROUPS.indexOf(g),tag:""}, s); save();
     const left = g.total - gDone(g);
     if (left<=0){ sDup(); vib(60); status("var(--warn)", `${g.code}　すべて済みです`, `${g.models.join(" ／ ")}　読んだ内容：${s}`); }
-    else { sItem(); vib(80); splash("var(--accent)", "var(--accent-fg)", g.code, `残り ${left} 個`, g.models.join(" ／ ")); status("var(--accent)", `${g.code}　残り ${left} 個`, "続けて札のバーコードを読むか、行の「済」を押してください"); $("status").style.color="var(--accent-fg)"; }
+    else { sItem(); vib(80); splash("var(--accent)", "var(--accent-fg)", g.code, `残り ${left} 個`, g.models.join(" ／ ")); status("var(--accent)", `${g.code}　残り ${left} 個`, "続けて札のバーコードを読んでください　（QRの中身：" + s + "）"); $("status").style.color="var(--accent-fg)"; }
     showCur(); return;
   }
   sNG(); vib([300,100,300]); log("対象外", null, s); save();
@@ -380,7 +380,7 @@ async function loop(){
       const box = $("cam"), fr = box.querySelector(".frame");
       const sc = Math.max(box.clientWidth/W, box.clientHeight/H);
       let cw, ch;
-      if (flip){ cw = Math.min(W, Math.round(fr.offsetWidth*1.1/sc)); ch = Math.min(H, Math.round(fr.offsetHeight*1.6/sc)); }
+      if (flip){ cw = Math.min(W, Math.round(fr.offsetWidth*1.25/sc)); ch = Math.min(H, Math.round(fr.offsetHeight*1.25/sc)); }
       else { cw = Math.min(W, Math.round(box.clientWidth/sc)); ch = Math.min(H, Math.round(box.clientHeight/sc)); }
       const sx = Math.round((W-cw)/2), sy = Math.round((H-ch)/2);
       const k = Math.min(1, (flip?1000:1100)/Math.max(cw,ch));
