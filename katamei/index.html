@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0c3a3a">
+<title>形名コード照合</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/zxing-wasm@2.2.4/dist/iife/reader/index.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<style>
+/* Layout: phone app — top bar, camera + current item card, tab bar at the bottom (照合 / 一覧 / 履歴) */
+:root{
+  --bg:#0c3a3a; --panel:#13504f; --fg:#eef6f4; --muted:#a9d3cf; --line:#2b6c6a;
+  --accent:#4fd6cc; --accent-fg:#06201f; --ok:#2e9e4f; --warn:#c77700; --ng:#e5392f; --idle:#2c4544;
+  --f-ui:"BIZ UDPGothic","Hiragino Sans","Noto Sans JP",system-ui,sans-serif;
+  --f-code:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:var(--f-ui);font-size:15px;line-height:1.5}
+body{display:flex;flex-direction:column;overflow:hidden;padding-top:env(safe-area-inset-top,0px);box-shadow:inset 0 6px 0 var(--accent)}
+button{font:inherit;font-weight:700;color:var(--fg);background:var(--panel);border:1.5px solid var(--line);border-radius:10px;padding:8px 12px;cursor:pointer;min-height:42px}
+button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.top{display:flex;align-items:center;gap:8px;padding:8px max(12px,env(safe-area-inset-right,0px)) 6px max(12px,env(safe-area-inset-left,0px))}
+.top h1{font-size:16px;margin:0;flex:1;color:var(--accent)}
+.top button{min-height:34px;padding:4px 10px;font-size:13px}
+.prog{font:700 13px var(--f-code);padding:4px 10px;border-radius:999px;background:var(--idle);white-space:nowrap}
+.confirm{display:flex;gap:8px;align-items:center;justify-content:space-between;background:var(--panel);border:1.5px solid var(--ng);border-radius:10px;padding:8px 10px;font-size:13px;margin:0 12px 6px}
+.confirm button{min-height:36px;padding:4px 12px}
+main{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;padding:0 max(12px,env(safe-area-inset-right,0px)) 8px max(12px,env(safe-area-inset-left,0px))}
+.view{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px}
+.cam{position:relative;flex:0 0 30vh;min-height:170px;border-radius:14px;overflow:hidden;background:#000}
+.cam video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.cam .frame{position:absolute;left:50%;top:50%;width:88%;aspect-ratio:3/1;transform:translate(-50%,-50%);border:3px solid rgba(255,255,255,.85);border-radius:14px;pointer-events:none}
+.cam .seen{position:absolute;left:8px;right:8px;top:8px;padding:5px 10px;border-radius:8px;background:rgba(0,0,0,.7);color:#fff;font:700 13px var(--f-code);word-break:break-all;text-align:center}
+.cam .diag{position:absolute;left:0;right:0;bottom:0;padding:3px 8px;font:11px var(--f-code);color:#fff;background:rgba(0,0,0,.45)}
+.cam .tap{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:rgba(0,0,0,.72);color:#fff;border:0;border-radius:0;font-size:20px;width:100%}
+.cam .tap small{font-size:13px;font-weight:400;opacity:.85}
+.status{border-radius:12px;padding:8px 12px;background:var(--idle);color:#fff;text-align:center;min-height:62px;display:flex;flex-direction:column;justify-content:center}
+.status b{font-size:20px;line-height:1.25}
+.status span{font-size:13px;opacity:.92;word-break:break-all}
+.card{background:var(--panel);border:1.5px solid var(--line);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:6px}
+.card h2{margin:0;font-size:17px;display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.card h2 small{font:700 14px var(--f-code);color:var(--accent)}
+.card .model{font:13px var(--f-code);color:var(--muted);word-break:break-all}
+.card .hint{font-size:13px;color:var(--muted)}
+.rows{display:flex;flex-direction:column;gap:5px}
+.r{display:grid;grid-template-columns:2.6em 1fr auto;gap:8px;align-items:center;background:#0e4342;border:1px solid var(--line);border-radius:9px;padding:6px 8px;font-size:13px}
+.r .no{font:700 14px var(--f-code);text-align:right;color:var(--muted)}
+.r .k{font:700 14px var(--f-code)}
+.r .s{font-size:12px;color:var(--muted)}
+.r button{min-height:34px;padding:2px 10px;font-size:13px}
+.r.done{opacity:.45}
+.r.done .k{text-decoration:line-through}
+.r.hit{border-color:#fff;background:var(--ok)}
+.glist{display:flex;flex-direction:column;gap:6px}
+.g{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 10px;cursor:pointer;text-align:left;font-weight:400}
+.g b{font:700 15px var(--f-code)}
+.g .m{grid-column:1;font-size:12px;color:var(--muted);word-break:break-all}
+.g .c{grid-row:1/3;grid-column:2;font:700 18px var(--f-code)}
+.g.full{border-color:var(--ok)}
+.g.full .c{color:#7be29a}
+.hist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.hist li{display:grid;grid-template-columns:auto auto 1fr;gap:8px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:7px 10px;font-size:13px}
+.hist .t{font-family:var(--f-code);color:var(--muted)}
+.hist .tag{font-weight:700;padding:2px 8px;border-radius:6px;font-size:12px;white-space:nowrap;color:#fff}
+.hist .c{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.splash{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center;pointer-events:none;opacity:0;transition:opacity .15s;padding:16px}
+.splash.show{opacity:1}
+.splash b{font-size:52px;line-height:1.05}
+.splash span{font-size:24px;font-weight:700}
+.splash small{font:15px var(--f-code);opacity:.9;max-width:92%;word-break:break-all}
+nav{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--line);background:#061c1c;padding-bottom:env(safe-area-inset-bottom,0px)}
+nav button{border:0;border-radius:0;background:transparent;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 4px 8px;min-height:54px;font-size:12px}
+nav button svg{width:24px;height:24px}
+nav button.on{color:var(--accent)}
+[hidden]{display:none!important}
+@media (prefers-reduced-motion: reduce){.splash{transition:none}}
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>形名コード照合</h1>
+  <span class="prog" id="prog">0/0</span>
+  <button id="resetBtn">リセット</button>
+</div>
+<div class="confirm" id="resetConfirm" hidden>
+  <span id="resetMsg"></span>
+  <span style="display:flex;gap:6px"><button id="resetYes">消す</button><button id="resetNo">やめる</button></span>
+</div>
+
+<main>
+  <section class="view" id="scanView">
+    <div class="cam" id="cam">
+      <video id="video" playsinline muted autoplay></video>
+      <div class="frame"></div>
+      <div class="seen" id="seen" hidden></div>
+      <div class="diag" id="diag"></div>
+      <button class="tap" id="tapStart">タップしてカメラ開始<small>音もここでオンになります</small></button>
+    </div>
+    <div class="status" id="status" role="status" aria-live="polite"><b id="sBig">準備中</b><span id="sSub"></span></div>
+    <div class="card" id="cur" hidden>
+      <h2><span id="curCode"></span><small id="curCount"></small></h2>
+      <div class="model" id="curModel"></div>
+      <div class="hint" id="curHint"></div>
+      <div class="rows" id="curRows"></div>
+    </div>
+  </section>
+
+  <section class="view" id="listView" hidden>
+    <div class="hint" style="font-size:12px;color:var(--muted)" id="listTitle"></div>
+    <div class="glist" id="glist"></div>
+  </section>
+
+  <section class="view" id="histView" hidden>
+    <ul class="hist" id="hist"></ul>
+    <button id="csvBtn">照合結果をCSVで保存</button>
+  </section>
+</main>
+
+<div class="splash" id="splash" style="display:none" aria-hidden="true"><b id="spBig"></b><span id="spMid"></span><small id="spSmall"></small></div>
+
+<nav>
+  <button data-tab="scan" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2"/><path d="M8 12l3 3 5-6"/></svg>照合</button>
+  <button data-tab="list"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>一覧</button>
+  <button data-tab="hist"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>履歴</button>
+</nav>
+
+<script>
+const $ = id => document.getElementById(id);
+/* ---------- リストのデータ（311-4172 出荷リスト） ----------
+   rows: [No, 図番, 型式, 手配数, 納期, 工事番号, 一連番号]
+   札のバーコード ＝ 工事番号（ハイフンなし）＋一連番号 例 66-0016 / 5289 → 6600165289 */
+const LIST = {name:"311-4172（21082 Z=26/11/13 ルビコンエンジニアリング様）", groups:[{"code":"09J932","rows":[[3,"A94601","GT2505HS-VTBD",1,"","66-0016","5289"],[13,"B94601","GT2505HS-VTBD",1,"","66-0018","5293"],[26,"C94601","GT2505HS-VTBD",1,"","66-0019","5381"],[47,"D94601","GT2505HS-VTBD",1,"","66-0020","5404"],[71,"E94607","GT2505HS-VTBD",1,"","66-0021","5656"],[93,"F94601","GT2505HS-VTBD",1,"","66-0022","5267"],[104,"G94601","GT2505HS-VTBD",1,"","66-0023","5314"],[116,"H94601","GT2505HS-VTBD",1,"","66-0024","5373"],[135,"J94601","GT2505HS-VTBD",1,"","66-0025","5303"],[148,"K94601","GT2505HS-VTBD",1,"","66-0026","5382"],[167,"L94601","GT2505HS-VTBD",1,"","66-0027","5246"]]},{"code":"09V623","rows":[[5,"A94604","GT11H-C30-37P",1,"入荷済","66-0016","5291"],[16,"B94604","GT11H-C30-37P(3m)",1,"入荷済","66-0018","5296"],[27,"C94602","GT11H-C30-37P(3m)",1,"入荷済","66-0019","5382"],[48,"D94602","GT11H-C30-37P(3m)",1,"入荷済","66-0020","5405"],[67,"E94603","GT11H-C30-37P",1,"入荷済","66-0021","5652"],[95,"F94603","GT11H-C30-37P(3m)",1,"入荷済","66-0022","5269"],[106,"G94604","GT11H-C30-37P",1,"入荷済","66-0023","5316"],[117,"H94602","GT11H-C30-37P(3m)",1,"入荷済","66-0024","5374"],[137,"J94604","GT11H-C30-37P(3m)",1,"入荷済","66-0025","5305"],[149,"K94602","GT11H-C30-37P(3m)",1,"入荷済","66-0026","5383"],[169,"L94604","GT11H-C30-37P(3m)",1,"入荷済","66-0027","5248"]]},{"code":"09V732","rows":[[4,"A94603","GT14H-50ESCOV",1,"11/10移送","66-0016","5290"],[14,"B94602","GT14H-50ESCOV",1,"11/10移送","66-0018","5294"],[29,"C94604","GT14H-50ESCOV",1,"11/10移送","66-0019","5384"],[50,"D94604","GT14H-50ESCOV",1,"11/10移送","66-0020","5407"],[69,"E94605","GT14H-50ESCOV",1,"11/10移送","66-0021","5654"],[96,"F94604","GT14H-50ESCOV",1,"11/10移送","66-0022","5270"],[105,"G94603","GT14H-50ESCOV",1,"11/10移送","66-0023","5315"],[119,"H94604","GT14H-50ESCOV",1,"11/10移送","66-0024","5376"],[138,"J94605","GT14H-50ESCOV",1,"11/10移送","66-0025","5306"],[151,"K94604","GT14H-50ESCOV",1,"11/10移送","66-0026","5385"],[170,"L94605","GT14H-50ESCOV",1,"11/10移送","66-0027","5249"]]},{"code":"09V734","rows":[[6,"A94605","GT16H-CNB-37S",1,"","66-0016","5292"],[15,"B94603","GT16H-CNB-37S",1,"","66-0018","5295"],[28,"C94603","GT16H-CNB-37S",1,"","66-0019","5383"],[49,"D94603","GT16H-CNB-37S",1,"","66-0020","5406"],[68,"E94604","GT16H-CNB-37S",1,"","66-0021","5653"],[94,"F94602","GT16H-CNB-37S",1,"","66-0022","5268"],[107,"G94605","GT16H-CNB-37S",1,"","66-0023","5317"],[118,"H94603","GT16H-CNB-37S",1,"","66-0024","5375"],[136,"J94603","GT16H-CNB-37S",1,"","66-0025","5304"],[150,"K94603","GT16H-CNB-37S",1,"","66-0026","5384"],[168,"L94603","GT16H-CNB-37S",1,"","66-0027","5247"]]},{"code":"09V743","rows":[[66,"E94601","GT14H-50ATT",1,"入荷済","66-0021","5651"]]},{"code":"158313","rows":[[2,"A94505","RTC-05FA3",1,"入荷済","66-0016","5288"],[12,"B94503","RTC-05FA3",1,"入荷済","66-0018","5290"],[25,"C94503","RTC-05FA3",1,"入荷済","66-0019","5378"],[46,"D94503","RTC-05FA3",1,"入荷済","66-0020","5401"],[92,"F94503","RTC-05FA3",1,"入荷済","66-0022","5264"],[102,"G94503","RTC-05FA3",1,"入荷済","66-0023","5310"],[115,"H94503","RTC-05FA3",1,"入荷済","66-0024","5370"],[134,"J94503","RTC-05FA3",1,"入荷済","66-0025","5300"],[147,"K94503","RTC-05FA3",1,"入荷済","66-0026","5379"],[166,"L94503","RTC-05FA3",1,"入荷済","66-0027","5243"]]},{"code":"1CC781","rows":[[17,"B96001","MR-CCN1",1,"","66-0018","5298"],[108,"G94805","MR-CCN1",1,"","66-0023","5318"]]},{"code":"1EA770","rows":[[64,"E93008","GT2710-STBA",1,"","66-0021","5618"]]},{"code":"1EK006","rows":[[65,"E93009","GT27-R2",1,"入荷済","66-0021","5619"]]},{"code":"1S1411","rows":[[81,"E97014","MR-J3ENCBL5M-A1-L",2,"","66-0021","5677"]]},{"code":"1S1421","rows":[[79,"E97012","MR-J3ENCBL5M-A1-H",4,"11/6移送","66-0021","5675"]]},{"code":"1S1511","rows":[[80,"E97013","MR-PWS1CBL5M-A1-L",2,"入荷済","66-0021","5676"]]},{"code":"1S1521","rows":[[78,"E97011","MR-PWS1CBL5M-A1-H",4,"11/6移送","66-0021","5674"]]},{"code":"1S1611","rows":[[82,"E97015","MR-BKS1CBL5M-A1-L",2,"","66-0021","5678"]]},{"code":"1S2410","rows":[[10,"B94013","MR-J3BUS015M",1,"入荷済","66-0018","5282"]]},{"code":"1S2413","rows":[[22,"B97006","MR-J3BUS1M",1,"11/6移送","66-0018","5307"]]},{"code":"1W4653","rows":[[70,"E94606","NZ2EHG-T8N",1,"入荷済","66-0021","5655"]]},{"code":"22M013","rows":[[24,"C94501","NF30-FA 3P 15A",1,"入荷済","66-0019","5376"],[45,"D94502","NF30-FA 3極 15A",1,"入荷済","66-0020","5400"],[114,"H94501","NF30-FA 3極 15A",1,"入荷済","66-0024","5368"],[146,"K94501","NF30-FA 3極 15A",1,"入荷済","66-0026","5377"]]},{"code":"24V043","rows":[[1,"A94504","NV30-FA 3P 15A 30mA",1,"11/10移送","66-0016","5287"],[91,"F94502","NV30-FA 3極 15A 30mA",1,"11/10移送","66-0022","5263"],[133,"J94502","NV30-FA 3極 15A 30mA",1,"11/10移送","66-0025","5299"],[165,"L94502","NV30-FA 3極 15A 30mA",1,"11/10移送","66-0027","5242"]]},{"code":"24V044","rows":[[11,"B94502","NV30-FA 3P 20A 30mA",1,"11/9移送","66-0018","5289"],[103,"G94506","NV30-FA 3P 20A 30mA",1,"11/9移送","66-0023","5313"]]},{"code":"9702000RA","rows":[[20,"B97003","SC-J3ENCBL3M-A1-H",1,"入荷済","66-0018","5304"],[32,"C97003","SC-J3ENCBL3M-A1-H",1,"入荷済","66-0019","5393"],[37,"C97008","SC-J3ENCBL3M-A1-H",1,"入荷済","66-0019","5398"],[53,"D97003","SC-J3ENCBL3M-A1-H",1,"入荷済","66-0020","5418"],[58,"D97008","SC-J3ENCBL3M-A1-H",1,"入荷済","66-0020","5423"],[99,"F97003","SC-J3ENCBL3M-A1-H",1,"入荷済","66-0022","5274"],[112,"G97004","SC-J3ENCBL3M-A1-H",1,"入荷済","66-0023","5328"],[122,"H97003","SC-J3ENCBL3M-A1-H",1,"入荷済","66-0024","5385"],[127,"H97008","SC-J3ENCBL3M-A1-H",1,"入荷済","66-0024","5390"],[141,"J97003","SC-J3ENCBL3M-A1-H",1,"入荷済","66-0025","5310"],[154,"K97003","SC-J3ENCBL3M-A1-H",1,"入荷済","66-0026","5394"],[159,"K97008","SC-J3ENCBL3M-A1-H",1,"入荷済","66-0026","5399"]]},{"code":"9702000RB","rows":[[18,"B97001","SC-PWS1CBL3M-A1-H",1,"入荷済","66-0018","5302"],[30,"C97001","SC-PWS1CBL3M-A1-H",1,"入荷済","66-0019","5391"],[35,"C97006","SC-PWS1CBL3M-A1-H",1,"入荷済","66-0019","5396"],[51,"D97001","SC-PWS1CBL3M-A1-H",1,"入荷済","66-0020","5416"],[56,"D97006","SC-PWS1CBL3M-A1-H",1,"入荷済","66-0020","5421"],[97,"F97001","SC-PWS1CBL3M-A1-H",1,"入荷済","66-0022","5272"],[110,"G97002","SC-PWS1CBL3M-A1-H",1,"","66-0023","5326"],[120,"H97001","SC-PWS1CBL3M-A1-H",1,"","66-0024","5383"],[125,"H97006","SC-PWS1CBL3M-A1-H",1,"","66-0024","5388"],[139,"J97001","SC-PWS1CBL3M-A1-H",1,"","66-0025","5308"],[152,"K97001","SC-PWS1CBL3M-A1-H",1,"","66-0026","5392"],[157,"K97006","SC-PWS1CBL3M-A1-H",1,"","66-0026","5397"]]},{"code":"9702000RC","rows":[[34,"C97005","SC-BKS1CBL3M-A1-H",1,"入荷済","66-0019","5395"],[55,"D97005","SC-BKS1CBL3M-A1-H",1,"入荷済","66-0020","5420"],[124,"H97005","SC-BKS1CBL3M-A1-H",1,"入荷済","66-0024","5387"],[156,"K97005","SC-BKS1CBL3M-A1-H",1,"入荷済","66-0026","5396"]]},{"code":"9702000RD","rows":[[21,"B97004","SC-J3ENCBL3M-A1-L",1,"入荷済","66-0018","5305"],[33,"C97004","SC-J3ENCBL3M-A1-L",2,"入荷済","66-0019","5394"],[38,"C97009","SC-J3ENCBL3M-A1-L",1,"入荷済","66-0019","5399"],[54,"D97004","SC-J3ENCBL3M-A1-L",2,"入荷済","66-0020","5419"],[59,"D97009","SC-J3ENCBL3M-A1-L",1,"入荷済","66-0020","5424"],[77,"E97010","SC-J3ENCBL3M-A1-L",4,"入荷済","66-0021","5673"],[100,"F97004","SC-J3ENCBL3M-A1-L",1,"入荷済","66-0022","5275"],[113,"G97005","SC-J3ENCBL3M-A1-L",1,"入荷済","66-0023","5329"],[123,"H97004","SC-J3ENCBL3M-A1-L",2,"入荷済","66-0024","5386"],[128,"H97009","SC-J3ENCBL3M-A1-L",1,"入荷済","66-0024","5391"],[142,"J97004","SC-J3ENCBL3M-A1-L",1,"入荷済","66-0025","5311"],[155,"K97004","SC-J3ENCBL3M-A1-L",2,"入荷済","66-0026","5395"],[160,"K97009","SC-J3ENCBL3M-A1-L",1,"入荷済","66-0026","5400"]]},{"code":"9702000RE","rows":[[19,"B97002","SC-PWS1CBL3M-A1-L",1,"入荷済","66-0018","5303"],[31,"C97002","SC-PWS1CBL3M-A1-L",2,"入荷済","66-0019","5392"],[36,"C97007","SC-PWS1CBL3M-A1-L",1,"入荷済","66-0019","5397"],[52,"D97002","SC-PWS1CBL3M-A1-L",2,"入荷済","66-0020","5417"],[57,"D97007","SC-PWS1CBL3M-A1-L",1,"入荷済","66-0020","5422"],[76,"E97009","SC-PWS1CBL3M-A1-L",4,"入荷済","66-0021","5672"],[98,"F97002","SC-PWS1CBL3M-A1-L",1,"入荷済","66-0022","5273"],[111,"G97003","SC-PWS1CBL3M-A1-L",1,"入荷済","66-0023","5327"],[121,"H97002","SC-PWS1CBL3M-A1-L",2,"入荷済","66-0024","5384"],[126,"H97007","SC-PWS1CBL3M-A1-L",1,"入荷済","66-0024","5389"],[140,"J97002","SC-PWS1CBL3M-A1-L",1,"入荷済","66-0025","5309"],[153,"K97002","SC-PWS1CBL3M-A1-L",2,"入荷済","66-0026","5393"],[158,"K97007","SC-PWS1CBL3M-A1-L",1,"入荷済","66-0026","5398"]]},{"code":"9702000RF","rows":[[8,"A97002","QG-G50-2C-5M-B-LL",1,"入荷済","66-0016","5298"],[9,"A97007","QG-G50-2C-5M-B-LL",1,"入荷済","66-0016","5301"],[23,"B97012","QG-G50-2C-5M-B-LL",1,"入荷済","66-0018","5312"],[42,"C97019","QG-G50-2C-5M-B-LL",1,"入荷済","66-0019","5408"],[63,"D97014","QG-G50-2C-5M-B-LL",1,"入荷済","66-0020","5429"],[88,"E97023","QG-G50-2C-5M-B-LL",1,"入荷済","66-0021","5686"],[101,"F97008","QG-G50-2C-5M-B-LL",1,"入荷済","66-0022","5278"],[109,"G97001","QG-G50-2C-5M-B-LL",1,"入荷済","66-0023","5325"],[132,"H97021","QG-G50-2C-5M-B-LL",1,"入荷済","66-0024","5401"],[143,"J97010","QG-G50-2C-5M-B-LL",1,"入荷済","66-0025","5316"],[164,"K97021","QG-G50-2C-5M-B-LL",1,"入荷済","66-0026","5410"],[171,"L97004","QG-G50-2C-5M-B-LL",1,"入荷済","66-0027","5253"]]},{"code":"9702000RG","rows":[[7,"A97001","QG-G50-2C-15M-B-LL",1,"","66-0016","5297"]]},{"code":"9702000RI","rows":[[44,"C97023","SC-J3ENCBL4M-A1-L",1,"入荷済","66-0019","5411"],[73,"E97006","SC-J3ENCBL4M-A1-L",2,"入荷済","66-0021","5669"],[87,"E97020","SC-J3ENCBL4M-A1-L",2,"入荷済","66-0021","5683"],[145,"J97012","SC-J3ENCBL4M-A1-L",1,"入荷済","66-0025","5318"]]},{"code":"9702000RJ","rows":[[43,"C97022","SC-PWS1CBL4M-A1-L",1,"入荷済","66-0019","5410"],[72,"E97005","SC-PWS1CBL4M-A1-L",2,"入荷済","66-0021","5668"],[86,"E97019","SC-PWS1CBL4M-A1-L",2,"入荷済","66-0021","5682"],[144,"J97011","SC-PWS1CBL4M-A1-L",1,"入荷済","66-0025","5317"]]},{"code":"9702000RN","rows":[[40,"C97011","SC-J3ENCBL4M-A1-H",1,"入荷済","66-0019","5401"],[61,"D97011","SC-J3ENCBL4M-A1-H",1,"入荷済","66-0020","5426"],[75,"E97008","SC-J3ENCBL4M-A1-H",1,"入荷済","66-0021","5671"],[84,"E97017","SC-J3ENCBL4M-A1-H",4,"入荷済","66-0021","5680"],[130,"H97011","SC-J3ENCBL4M-A1-H",1,"入荷済","66-0024","5393"],[162,"K97011","SC-J3ENCBL4M-A1-H",1,"入荷済","66-0026","5402"]]},{"code":"9702000RO","rows":[[39,"C97010","SC-PWS1CBL4M-A1-H",1,"入荷済","66-0019","5400"],[60,"D97010","SC-PWS1CBL4M-A1-H",1,"入荷済","66-0020","5425"],[74,"E97007","SC-PWS1CBL4M-A1-H",1,"入荷済","66-0021","5670"],[83,"E97016","SC-PWS1CBL4M-A1-H",4,"入荷済","66-0021","5679"],[129,"H97010","SC-PWS1CBL4M-A1-H",1,"入荷済","66-0024","5392"],[161,"K97010","SC-PWS1CBL4M-A1-H",1,"入荷済","66-0026","5401"]]},{"code":"9702000RP","rows":[[41,"C97012","SC-BKS1CBL4M-A1-H",1,"入荷済","66-0019","5402"],[62,"D97012","SC-BKS1CBL4M-A1-H",1,"入荷済","66-0020","5427"],[85,"E97018","SC-BKS1CBL4M-A1-H",4,"入荷済","66-0021","5681"],[131,"H97012","SC-BKS1CBL4M-A1-H",1,"入荷済","66-0024","5394"],[163,"K97012","SC-BKS1CBL4M-A1-H",1,"入荷済","66-0026","5403"]]},{"code":"9702000RZ","rows":[[90,"E97028","SC-J3ENCBL6M-A1-H",1,"入荷済","66-0021","5688"]]},{"code":"9702000RZ1","rows":[[89,"E97027","SC-PWS1CBL6M-A1-H",1,"入荷済","66-0021","5687"]]}]};
+/* 箱のメーカーバーコード（部品コード）→ 型式。読んだ時に形名コードへつなぐため */
+const PART = {"3240101003":"SC-J3ENCBL3M-A1-H","3240001003":"SC-J3ENCBL3M-A1-L","3240101004":"SC-J3ENCBL4M-A1-H","3240001004":"SC-J3ENCBL4M-A1-L","3240101006":"SC-J3ENCBL6M-A1-H","3240401003":"SC-PWS1CBL3M-A1-H","3240301003":"SC-PWS1CBL3M-A1-L","3240402003":"SC-PWS1CBL3M-A2-H","3240401004":"SC-PWS1CBL4M-A1-H","3240301004":"SC-PWS1CBL4M-A1-L","3240401006":"SC-PWS1CBL6M-A1-H","3240701003":"SC-BKS1CBL3M-A1-H","3240702003":"SC-BKS1CBL3M-A2-H","3240701004":"SC-BKS1CBL4M-A1-H","3200321005":"SC-HAJ3ENM3C1M","3420112005":"QG-G50-2C-5M-B-LL"};
+const norm = s => String(s||"").replace(/[\s　*]/g,"").toUpperCase();
+const ROWS = [], GROUPS = LIST.groups.map((g,gi)=>{
+  const rows = g.rows.map(a=>{ const r={no:a[0],zu:a[1],model:a[2],q:a[3],nk:a[4],kj:a[5],rn:a[6],g:gi}; r.tag=a[5].replace(/-/g,"")+a[6]; ROWS.push(r); return r; });
+  const models = [...new Set(rows.map(r=>r.model))];
+  return {code:g.code, rows, models, total:rows.reduce((s,r)=>s+r.q,0)};
+});
+const total = GROUPS.reduce((s,g)=>s+g.total,0);
+
+/* ---------- 保存（この携帯の中だけ） ---------- */
+const KD = "kmz-done-4172", KH = "kmz-hist-4172";
+let done = {}, hist = [];
+try{ done = JSON.parse(localStorage.getItem(KD)||"{}")||{}; }catch(e){ done={}; }
+try{ hist = JSON.parse(localStorage.getItem(KH)||"[]"); if(!Array.isArray(hist)) hist=[]; }catch(e){ hist=[]; }
+const save = ()=>{ try{ localStorage.setItem(KD, JSON.stringify(done)); localStorage.setItem(KH, JSON.stringify(hist.slice(0,800))); }catch(e){} };
+const dn = r => done[r.no]||0;
+const gDone = g => g.rows.reduce((s,r)=>s+Math.min(dn(r),r.q),0);
+const allDone = () => GROUPS.reduce((s,g)=>s+gDone(g),0);
+
+/* ---------- 音 ---------- */
+let ac = null;
+function audio(){ if(!ac){ const C = window.AudioContext||window.webkitAudioContext; if(C) ac = new C(); } if(ac && ac.state==="suspended") ac.resume(); return ac; }
+function tone(f, st, d, type="sine", vol=.35){
+  const a = audio(); if(!a) return;
+  const t = a.currentTime+st, o = a.createOscillator(), g = a.createGain();
+  o.type=type; o.frequency.setValueAtTime(f,t);
+  g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(vol,t+.01);
+  g.gain.setValueAtTime(vol,t+d-.04); g.gain.linearRampToValueAtTime(0,t+d);
+  o.connect(g).connect(a.destination); o.start(t); o.stop(t+d+.02);
+}
+const MATCH = [
+  ()=>{ tone(1047,0,.28,"sine",.4); tone(784,.3,.5,"sine",.4); },          // ピンポン
+  ()=>{ tone(2000,0,.6,"square",.18); },                                  // ピー
+  ()=>{ tone(784,0,.12); tone(988,.12,.12); tone(1319,.24,.3); },          // ピロリン
+  ()=>{ tone(523,0,.15,"triangle",.5); tone(523,.22,.15,"triangle",.5); }, // ポンポン
+  ()=>{ for(let k=0;k<3;k++) tone(1568,k*.13,.08,"square",.18); },         // ピピピ
+];
+const sMatch = i => MATCH[i % MATCH.length]();
+const sReg = () => tone(1800,0,.12,"square",.16);
+const sDup = () => { tone(900,0,.07,"square",.12); tone(900,.12,.07,"square",.12); };
+const sNG  = () => { tone(140,0,.7,"sawtooth",.3); tone(147,0,.7,"sawtooth",.22); };
+const vib = p => { try{ navigator.vibrate && navigator.vibrate(p); }catch(e){} };
+
+
+const sItem = () => { tone(1319,0,.12,"square",.16); tone(1760,.13,.14,"square",.16); };
+const sOK = () => { tone(1047,0,.25,"sine",.4); tone(784,.27,.45,"sine",.4); };
+
+/* ---------- 表示 ---------- */
+function status(bg, big, sub){ const s=$("status"); s.style.background=bg; s.style.color="#fff"; $("sBig").textContent=big; $("sSub").textContent=sub||""; }
+let spT=null, spT2=null;
+function splash(bg, fg, big, mid, small){
+  const s=$("splash"); s.style.background=bg; s.style.color=fg;
+  $("spBig").textContent=big; $("spMid").textContent=mid; $("spSmall").textContent=small||"";
+  clearTimeout(spT); clearTimeout(spT2); s.style.display="flex"; void s.offsetWidth; s.classList.add("show");
+  /* 消えたあとは要素ごと隠して色も外す（iPhoneの上下のバーに色を残さない） */
+  spT=setTimeout(()=>{ s.classList.remove("show"); spT2=setTimeout(()=>{ s.style.display="none"; s.style.background=""; },200); },1300);
+}
+function prog(){ const d=allDone(); $("prog").textContent=`${d}/${total}`; $("prog").style.background = d>=total ? "var(--ok)" : "var(--idle)"; }
+
+let cur = null, hitNo = null, armed = false;   // armed：品物を読んで、札を待っている状態   // 今選ばれている形名コードのグループ
+function showCur(){
+  if (!cur){ $("cur").hidden = true; return; }
+  const g = cur; $("cur").hidden = false;
+  $("curCode").textContent = g.code;
+  $("curCount").textContent = `${gDone(g)} / ${g.total} 個`;
+  $("curModel").textContent = g.models.join("　／　");
+  $("curHint").textContent = gDone(g)>=g.total ? "この形名コードはすべて済みです" : "札のバーコードを読むか、当てはまる行の「済」を押してください";
+  const el = $("curRows"); el.innerHTML = "";
+  g.rows.slice().sort((a,b)=>(dn(a)>=a.q)-(dn(b)>=b.q)).forEach(r=>{
+    const d = document.createElement("div"); d.className = "r"+(dn(r)>=r.q?" done":"")+(r.no===hitNo?" hit":"");
+    d.innerHTML = `<span class="no"></span><span><span class="k"></span><br><span class="s"></span></span><button></button>`;
+    d.querySelector(".no").textContent = r.no;
+    d.querySelector(".k").textContent = `${r.kj} / ${r.rn}`;
+    d.querySelector(".s").textContent = `${r.zu}　${r.model}${r.q>1?`　${dn(r)}/${r.q}個`:""}${r.nk?`　${r.nk}`:""}`;
+    const b = d.querySelector("button");
+    if (dn(r)>=r.q){ b.textContent="戻す"; b.onclick=()=>{ done[r.no]=Math.max(0,dn(r)-1); log("戻し",r,""); save(); refresh(); }; }
+    else { b.textContent="済"; b.onclick=()=>markRow(r,"手で済"); }
+    el.appendChild(d);
+  });
+}
+function refresh(){ prog(); showCur(); if(!$("listView").hidden) renderList(); }
+function renderList(){
+  $("listTitle").textContent = LIST.name + "　形名コードをタップすると行が出ます";
+  const el = $("glist"); el.innerHTML = "";
+  GROUPS.forEach(g=>{
+    const b = document.createElement("button"); const d = gDone(g);
+    b.className = "g"+(d>=g.total?" full":"");
+    b.innerHTML = `<b></b><span class="c"></span><span class="m"></span>`;
+    b.querySelector("b").textContent = g.code; b.querySelector(".c").textContent = `${d}/${g.total}`;
+    b.querySelector(".m").textContent = g.models.join(" ／ ");
+    b.onclick = ()=>{ cur = g; hitNo = null; armed = false; setTab("scan"); showCur(); status("var(--idle)", g.code, "札のバーコードを読むか、行の「済」を押してください"); };
+    el.appendChild(b);
+  });
+}
+function renderHist(){
+  const ul = $("hist");
+  if (!hist.length){ ul.innerHTML = `<li><span class="t">--:--</span><span class="tag" style="background:var(--idle)">なし</span><span class="c">照合するとここに残ります</span></li>`; return; }
+  ul.innerHTML = hist.map(()=>`<li><span class="t"></span><span class="tag"></span><span class="c"></span></li>`).join("");
+  const C = {"一致":"var(--ok)","札のみ":"var(--accent)","手で済":"var(--ok)","不一致":"var(--ng)","対象外":"var(--ng)","済み":"var(--warn)","戻し":"var(--warn)"};
+  [...ul.children].forEach((li,k)=>{ const h=hist[k], d=new Date(h.t);
+    li.children[0].textContent = d.toTimeString().slice(0,5);
+    li.children[1].textContent = h.r; li.children[1].style.background = C[h.r]||"var(--idle)";
+    li.children[2].textContent = (h.no?`No.${h.no} `:"") + (h.code||"") + (h.tag?` ${h.tag}`:"") + (h.s?` 読んだ:${h.s}`:""); });
+}
+function log(r, row, s){ hist.unshift({t:Date.now(), r, no:row?row.no:"", code:row?GROUPS[row.g].code:(cur?cur.code:""), tag:row?row.tag:"", s}); }
+
+let tab = "scan";
+function setTab(t){
+  tab = t;
+  document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("on", b.dataset.tab===t));
+  $("scanView").hidden = t!=="scan"; $("listView").hidden = t!=="list"; $("histView").hidden = t!=="hist";
+  $("resetConfirm").hidden = true;
+  if (t==="list") renderList(); if (t==="hist") renderHist();
+}
+function idleStatus(){
+  if (cur) status("var(--idle)", cur.code, "札のバーコードを読むか、行の「済」を押してください");
+  else status("var(--idle)", "品物のバーコードを読んでください", "形名コードが分かると、リストの行が出ます");
+}
+
+/* ---------- 読み取った時の処理 ---------- */
+function findGroup(s){
+  let best = null, bl = 0;
+  GROUPS.forEach(g=>{
+    const keys = [g.code, ...g.models].map(norm);
+    if (PART[s]) keys.includes(norm(PART[s])) && (best = g, bl = 99);
+    keys.forEach(k=>{ if (k.length>=5 && (s===k || s.includes(k)) && k.length>bl){ best=g; bl=k.length; } });
+  });
+  return best;
+}
+function markRow(r, how){
+  if (dn(r) >= r.q){ sDup(); vib(60); status("var(--warn)", `No.${r.no} はもう済みです`, `${r.kj} / ${r.rn}　${r.model}`); log("済み", r, ""); save(); return; }
+  done[r.no] = dn(r)+1; hitNo = r.no; log(how, r, ""); save();
+  const g = GROUPS[r.g]; sOK(); vib(150);
+  splash("var(--ok)", "#fff", "一致", `No.${r.no}　${g.code}`, `${r.kj} / ${r.rn}　${r.model}`);
+  status("var(--ok)", `一致　No.${r.no}（${gDone(g)}/${g.total}）`, `${r.kj} / ${r.rn}　${r.zu}　${r.model}`);
+  refresh();
+}
+let lastCode = "", lastAt = 0;
+function handle(code, fromCam){
+  const s = norm(code); if (!s) return;
+  const now = Date.now();
+  if (fromCam && s===lastCode && now-lastAt < 2500) return;
+  lastCode = s; lastAt = now;
+  // 1) 札のバーコード（工事番号＋一連番号）
+  const r = ROWS.find(x=>x.tag===s);
+  if (r){
+    const g = GROUPS[r.g];
+    if (armed && cur && cur!==g){
+      sNG(); vib([300,100,300]); log("不一致", r, s); save();
+      splash("var(--ng)", "#fff", "×", "形名コードが違います", `札：No.${r.no} ${g.code}　品物：${cur.code}`);
+      status("var(--ng)", "不一致：形名コードが違います", `札は No.${r.no} ${g.code}（${r.model}）／ 品物は ${cur.code}`);
+      return;
+    }
+    const how = armed ? "一致" : "札のみ"; armed = false; cur = g; markRow(r, how); return;
+  }
+  if (/^66\d{8}$/.test(s)){
+    sNG(); vib([300,100,300]); log("対象外", null, s); save();
+    splash("var(--ng)", "#fff", "×", "このリストにない札です", s);
+    status("var(--ng)", "このリストにない札です", s); return;
+  }
+  // 2) 品物のバーコード（形名コード・型式・部品コード）
+  const g = findGroup(s);
+  if (g){
+    cur = g; hitNo = null; armed = true; save();
+    const left = g.total - gDone(g);
+    if (left<=0){ sDup(); vib(60); status("var(--warn)", `${g.code}　すべて済みです`, `${g.models.join(" ／ ")}　読んだ内容：${s}`); }
+    else { sItem(); vib(80); splash("var(--accent)", "var(--accent-fg)", g.code, `残り ${left} 個`, g.models.join(" ／ ")); status("var(--accent)", `${g.code}　残り ${left} 個`, "続けて札のバーコードを読むか、行の「済」を押してください"); $("status").style.color="var(--accent-fg)"; }
+    showCur(); return;
+  }
+  sNG(); vib([300,100,300]); log("対象外", null, s); save();
+  splash("var(--ng)", "#fff", "×", "リストにありません", s);
+  status("var(--ng)", "リストにありません", "読んだ内容：" + s);
+}
+
+/* ---------- QR解析 ---------- */
+let detector = null;
+try{ if ("BarcodeDetector" in window) detector = new BarcodeDetector({formats:["qr_code","code_128","code_39","code_93","codabar","ean_13","ean_8","itf","upc_a","upc_e","data_matrix"]}); }catch(e){ detector = null; }
+let zxOK = null;  // 高感度エンジン（ZXing）が使えるか
+async function decodeCanvas(cv){
+  const W = cv.width, H = cv.height, cx = W/2, cy = H/2;
+  const nearest = list => list.sort((p,q)=>p.d-q.d)[0];   // 画面の中央に一番近いQRを選ぶ
+  if (detector){
+    try{
+      const r = await detector.detect(cv);
+      if (r && r.length) return nearest(r.map(x=>{ const bb=x.boundingBox; return {t:x.rawValue, d:Math.hypot(bb.x+bb.width/2-cx, bb.y+bb.height/2-cy)}; })).t;
+    }catch(e){}
+  }
+  const img = cv.getContext("2d",{willReadFrequently:true}).getImageData(0,0,W,H);
+  if (window.ZXingWASM && zxOK !== false){
+    try{
+      const r = await ZXingWASM.readBarcodes(img, {tryHarder:true, maxNumberOfSymbols:4});
+      zxOK = true;
+      const ok = (r||[]).filter(x=>x.isValid && x.text);
+      if (ok.length) return nearest(ok.map(x=>{ const p=x.position; const mx=(p.topLeft.x+p.topRight.x+p.bottomLeft.x+p.bottomRight.x)/4, my=(p.topLeft.y+p.topRight.y+p.bottomLeft.y+p.bottomRight.y)/4; return {t:x.text, d:Math.hypot(mx-cx,my-cy)}; })).t;
+      return null;
+    }catch(e){ zxOK = false; }
+  }
+  if (window.jsQR){
+    const r = jsQR(img.data, W, H, {inversionAttempts:"dontInvert"});
+    if (r) return r.data;
+  }
+  return null;
+}
+
+/* ---------- カメラ ---------- */
+let pend = "", pendAt = 0;  // 誤読防止：2回連続で同じ内容なら確定
+let stream = null, running = false, tries = 0, flip = false, seenCode = "", seenAt = 0;
+const work = document.createElement("canvas");
+function camWhy(e){
+  const n = (e&&e.name)||"";
+  if (n==="NotAllowedError") return "カメラが「拒否」になっています。アドレス欄の「ぁあ」→Webサイトの設定→カメラを「許可」にして、もう一度タップ";
+  if (n==="NotReadableError"||n==="AbortError") return "他のアプリやタブがカメラを使っています。他のカメラ画面を閉じて、もう一度タップ";
+  if (n==="NotFoundError"||n==="OverconstrainedError") return "カメラが見つかりませんでした。もう一度タップ";
+  if (!navigator.mediaDevices) return "このブラウザではカメラが使えません。SafariかChromeで開き直してください";
+  return "もう一度タップしてください（"+n+"）";
+}
+async function startCam(){
+  audio(); sReg();
+  $("tapStart").hidden = true;
+  if (!navigator.mediaDevices){ $("tapStart").hidden=false; $("tapStart").innerHTML="カメラを使えませんでした<small>"+camWhy(null)+"</small>"; return; }
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1920},height:{ideal:1080}},audio:false});
+  }catch(e){
+    try{ stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"},audio:false}); }
+    catch(e2){
+      $("tapStart").hidden = false;
+      $("tapStart").innerHTML = "カメラを使えませんでした<small>"+camWhy(e2)+"</small>";
+      return;
+    }
+  }
+  const v = $("video"); v.srcObject = stream; await v.play().catch(()=>{});
+  running = true; idleStatus(); loop();
+  setTimeout(()=>{ if (stream && !$("video").videoWidth){ $("tapStart").hidden=false; $("tapStart").innerHTML="カメラの映像が来ません<small>照合ブザーの他のページ（QR・シート）を開いているタブを閉じてから、ここをタップしてください</small>"; try{stream.getTracks().forEach(t=>t.stop());}catch(e){} stream=null; running=false; } }, 4000);
+}
+async function loop(){
+  if (!running) return;
+  const v = $("video");
+  if (!$("scanView").hidden && v.readyState>=2 && v.videoWidth){
+    const W = v.videoWidth, H = v.videoHeight;
+    let code = null;
+    try{
+      const ctx = work.getContext("2d",{willReadFrequently:true});
+      // 画面に見えている範囲（と、交互に枠の内側を拡大）を解析する
+      const box = $("cam"), fr = box.querySelector(".frame");
+      const sc = Math.max(box.clientWidth/W, box.clientHeight/H);
+      let cw, ch;
+      if (flip){ cw = Math.min(W, Math.round(fr.offsetWidth*1.1/sc)); ch = Math.min(H, Math.round(fr.offsetHeight*1.6/sc)); }
+      else { cw = Math.min(W, Math.round(box.clientWidth/sc)); ch = Math.min(H, Math.round(box.clientHeight/sc)); }
+      const sx = Math.round((W-cw)/2), sy = Math.round((H-ch)/2);
+      const k = Math.min(1, (flip?1000:1100)/Math.max(cw,ch));
+      work.width = Math.round(cw*k); work.height = Math.round(ch*k);
+      ctx.drawImage(v,sx,sy,cw,ch,0,0,work.width,work.height);
+      flip = !flip;
+      code = await decodeCanvas(work);
+    }catch(e){}
+    tries++;
+    $("diag").textContent = `カメラ ${W}×${H}　解析 ${tries}回　${detector?"標準":zxOK?"ZXing":window.ZXingWASM&&zxOK===null?"ZXing準備中":"jsQR"}`;
+    if (code){ code = code.trim(); const t = Date.now();
+      if (code===pend && t-pendAt < 1500){ seenCode = code; seenAt = t; handle(code, true); }
+      pend = code; pendAt = t; }
+    const fresh = seenCode && Date.now()-seenAt < 1200;
+    $("seen").hidden = !fresh;
+    if (fresh) $("seen").textContent = "読めています：" + seenCode;
+  }
+  setTimeout(loop, 60);
+}
+$("tapStart").onclick = startCam;
+/* iPhoneはカメラを同時に1つのタブしか使えないので、見ていない間はカメラを手放し、戻ったら付け直す */
+let wantCam = false;
+document.addEventListener("visibilitychange", ()=>{
+  if (document.hidden){
+    if (running){ wantCam = true; running = false; try{ stream.getTracks().forEach(t=>t.stop()); }catch(e){} stream = null; }
+  } else {
+    if(ac) ac.resume();
+    if (wantCam){ wantCam = false; startCam(); } else camCheck();
+  }
+});
+window.addEventListener("pagehide", ()=>{ try{ stream && stream.getTracks().forEach(t=>t.stop()); }catch(e){} });
+window.addEventListener("pageshow", camCheck);
+/* カメラが止まっていたら（アプリ切替・画面ロック後など）自動で付け直す */
+function camDead(){
+  if (!stream) return false;
+  const t = stream.getVideoTracks()[0];
+  return !t || t.readyState==="ended";
+}
+async function camCheck(){
+  if (!running) return;
+  const v = $("video");
+  if (camDead()){
+    try{ stream.getTracks().forEach(t=>t.stop()); }catch(e){}
+    running = false; stream = null;
+    await startCam();
+  } else if (v.paused){ v.play().catch(()=>{}); }
+}
+setInterval(()=>{ if(running && !document.hidden && camDead()) camCheck(); }, 2000);
+
+
+/* ---------- ボタン ---------- */
+document.querySelectorAll("nav button").forEach(b=> b.onclick = ()=>{ audio(); setTab(b.dataset.tab); });
+$("resetBtn").onclick = ()=>{ $("resetMsg").textContent = `照合の記録（済 ${allDone()}個・履歴）をすべて消します`; $("resetConfirm").hidden = false; };
+$("resetNo").onclick = ()=> $("resetConfirm").hidden = true;
+$("resetYes").onclick = ()=>{ done = {}; hist = []; cur = null; hitNo = null; armed = false; save(); refresh(); renderHist(); $("resetConfirm").hidden = true; idleStatus(); };
+$("csvBtn").onclick = ()=>{
+  const q = s => `"${String(s).replace(/"/g,'""')}"`;
+  const rows = [["No.","図番","型式","手配数","納期","工事番号","一連番号","札バーコード","形名コード","済数","状態"]].concat(
+    ROWS.slice().sort((a,b)=>a.no-b.no).map(r=>[r.no,r.zu,r.model,r.q,r.nk,r.kj,r.rn,r.tag,GROUPS[r.g].code,dn(r),dn(r)>=r.q?"済":"未"]));
+  const csv = "﻿" + rows.map(r=>r.map(q).join(",")).join("\r\n");
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+  const d = new Date(); a.download = `形名照合_311-4172_${d.getMonth()+1}${String(d.getDate()).padStart(2,"0")}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+};
+setTab("scan"); refresh();
+status("var(--idle)", "カメラの開始待ち", "上のカメラ画面をタップしてください");
+</script>
+</body>
+</html>
