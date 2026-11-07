@@ -83,7 +83,7 @@ h1{color:var(--accent)}
       <label class="pick">🖼 写真を選ぶ<input type="file" id="pick" accept="image/*" multiple></label>
       <button id="retryAll">未送信を送る</button>
     </div>
-    <div class="lbl">次の写真に付けるメモ（形名・担当者など、空でもOK）</div>
+    <div class="lbl">次の写真に付けるメッセージ（Teamsに一緒に送る文。書き換えてもOK）</div>
     <input id="memo" placeholder="例：FR-E820 竹中さん" autocomplete="off">
     <div class="lbl">気づき（自分用。Teamsには送らず、Driveの写真に残ります）</div>
     <input id="note" placeholder="例：部署違い（冷熱宛て）" autocomplete="off">
@@ -182,6 +182,10 @@ function shrink(file, max){
   });
 }
 
+/* Teamsに送るメッセージの定型文（撮るたびに自動で入る） */
+const TEMPLATE = "お疲れさまです。品物が入荷しましたので、写真でお知らせします。ご確認をお願いいたします。";
+function fillTemplate(){ $("memo").value = TEMPLATE; }
+
 async function addFiles(files){
   const memo = $("memo").value.trim(), note = $("note").value.trim();
   for (const f of files){
@@ -190,7 +194,7 @@ async function addFiles(files){
     const it = {name:newName(new Date(at)), blob, memo, note, at, status:"wait", err:""};
     ITEMS.set(it.name, it); dbPut(it);
   }
-  $("memo").value = ""; $("note").value = "";
+  fillTemplate(); $("note").value = "";
   render();
   if (SET.auto) sendQueue();
   else showMsg("撮りました。「未送信を送る」でDriveへ送れます");
@@ -332,6 +336,9 @@ $("cam").onchange = e => { const f = [...e.target.files]; e.target.value = ""; i
 $("pick").onchange = e => { const f = [...e.target.files]; e.target.value = ""; if (f.length) addFiles(f); };
 $("retryAll").onclick = ()=>{ if (![...ITEMS.values()].some(i=>i.status!=="ok")) return showMsg("未送信の写真はありません"); sendQueue(); };
 $("zoom").onclick = ()=> $("zoom").hidden = true;
+/* 定型文のままタップしたら全部選んだ状態にする（別の文を入れるとき、すぐ消せるように） */
+$("memo").addEventListener("focus", e=>{ if (e.target.value === TEMPLATE) setTimeout(()=>e.target.select(), 0); });
+fillTemplate();
 /* 気づきの定型文（押すと気づき欄に足される） */
 ["部署違い","宛先不明","担当者不明","破損あり","数量違い","伝票なし"].forEach(t=>{
   const b = document.createElement("button"); b.textContent = t;
