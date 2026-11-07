@@ -76,6 +76,13 @@ nav button.on.reg{color:#7fb0ff}
 .bulk textarea{width:100%;min-height:150px;font:13px var(--f-code);background:#1d1030;color:var(--fg);border:1.5px solid var(--line);border-radius:8px;padding:8px}
 .bulk p{margin:0;font-size:12px;color:var(--muted)}
 .chip .nm{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:13em}
+.proj{display:flex;gap:6px;align-items:center;padding:0 max(12px,env(safe-area-inset-right,0px)) 6px max(12px,env(safe-area-inset-left,0px))}
+.proj label{font-size:12px;color:var(--muted);white-space:nowrap}
+.proj select{flex:1;min-width:0;font:700 15px var(--f-ui);color:var(--fg);background:var(--panel);border:1.5px solid var(--accent);border-radius:10px;padding:6px 8px;min-height:40px}
+.proj button{min-height:40px;padding:4px 10px;font-size:13px;white-space:nowrap}
+.pform{display:flex;flex-direction:column;gap:8px;background:var(--panel);border:1.5px solid var(--accent);border-radius:10px;padding:10px;margin:0 max(12px,env(safe-area-inset-right,0px)) 6px max(12px,env(safe-area-inset-left,0px));font-size:13px}
+.pform input{font:15px var(--f-ui);color:var(--fg);background:#1d1030;border:1.5px solid var(--line);border-radius:8px;padding:8px;min-width:0}
+.pform .row{flex-wrap:wrap}
 [hidden]{display:none!important}
 @media (prefers-reduced-motion: reduce){.status.flash{animation:none}.splash{transition:none}}
 
@@ -89,6 +96,19 @@ h1{color:var(--accent)}
   <h1>バーコード探索ブザー</h1>
   <span class="badge" id="badge">登録</span>
   <button id="resetBtn">リセット</button>
+</div>
+<div class="proj">
+  <label for="projSel">物件</label>
+  <select id="projSel"></select>
+  <button id="projNew">＋新しい物件</button>
+  <button id="projMenu" aria-label="物件の名前変更・削除">…</button>
+</div>
+<div class="pform" id="projForm" hidden>
+  <span id="projFormMsg">新しい物件の名前</span>
+  <input id="projName" placeholder="例：311-4172 ルビコン" autocomplete="off">
+  <div class="row"><button id="projOk">作る</button><button id="projCancel">やめる</button></div>
+  <div class="row" id="projDelRow" hidden><button id="projDel" style="border-color:var(--ng);color:#ffb3ad">この物件を削除</button></div>
+  <div class="row" id="projDelConfirm" hidden><span style="flex:1;align-self:center">登録と履歴ごと消えます。よろしいですか？</span><button id="projDelYes" style="flex:0 0 auto;background:var(--ng)">削除する</button><button id="projDelNo" style="flex:0 0 auto">やめる</button></div>
 </div>
 <div class="confirm" id="resetConfirm" hidden>
   <span id="resetMsg">登録をすべて消して最初からやり直します</span>
@@ -164,8 +184,27 @@ const PALETTE = [
 const col = i => PALETTE[i % PALETTE.length];
 const KR = "bcbz-reg-v1", KH = "bcbz-hist-v1", KN = "bcbz-names-v1";
 let reg = [], hist = [], names = {};
-try{ names = JSON.parse(localStorage.getItem(KN)||"{}")||{}; }catch(e){ names={}; }
-function saveNames(){ try{ localStorage.setItem(KN, JSON.stringify(names)); }catch(e){} }
+/* ---------- 物件ごとの保存（登録・品名・履歴を物件ごとに分けて覚える） ---------- */
+const KP = "bcbz-projects-v1";
+let store = null;
+try{ store = JSON.parse(localStorage.getItem(KP)||"null"); }catch(e){ store = null; }
+if (!store || !Array.isArray(store.list) || !store.list.length){
+  // 前のバージョンの登録・履歴を「物件1」として引き継ぐ
+  let r0=[], h0=[], n0={};
+  try{ r0 = JSON.parse(localStorage.getItem(KR)||"[]")||[]; }catch(e){}
+  try{ h0 = JSON.parse(localStorage.getItem(KH)||"[]")||[]; }catch(e){}
+  try{ n0 = JSON.parse(localStorage.getItem(KN)||"{}")||{}; }catch(e){}
+  const id = "p"+Date.now();
+  store = {cur:id, list:[{id, name:"物件1", reg:Array.isArray(r0)?r0:[], hist:Array.isArray(h0)?h0:[], names:n0||{}, t:Date.now()}]};
+}
+let proj = store.list.find(p=>p.id===store.cur) || store.list[0];
+store.cur = proj.id;
+reg = proj.reg||[]; hist = proj.hist||[]; names = proj.names||{};
+function saveStore(){
+  proj.reg = reg; proj.hist = hist.slice(0,500); proj.names = names; proj.t = Date.now();
+  try{ localStorage.setItem(KP, JSON.stringify(store)); }catch(e){}
+}
+function saveNames(){ saveStore(); }
 /* 照合用：空白と * を消して大文字に（古いラベルの「324 010 1003」やCode39の*に対応） */
 const norm = s => String(s||"").replace(/[\s　*]/g,"").toUpperCase();
 const findReg = code => { const k = norm(code); return reg.findIndex(r=>norm(r)===k); };
@@ -185,10 +224,8 @@ const SC_LIST = `3240101003,SC-J3ENCBL3M-A1-H
 3240702003,SC-BKS1CBL3M-A2-H
 3240701004,SC-BKS1CBL4M-A1-H
 3200321005,SC-HAJ3ENM3C1M`;
-try{ reg = JSON.parse(localStorage.getItem(KR)||"[]"); if(!Array.isArray(reg)) reg=[]; }catch(e){ reg=[]; }
-try{ hist = JSON.parse(localStorage.getItem(KH)||"[]"); if(!Array.isArray(hist)) hist=[]; }catch(e){ hist=[]; }
-function saveReg(){ try{ localStorage.setItem(KR, JSON.stringify(reg)); }catch(e){} }
-function saveHist(){ try{ localStorage.setItem(KH, JSON.stringify(hist.slice(0,500))); }catch(e){} }
+function saveReg(){ saveStore(); }
+function saveHist(){ saveStore(); }
 
 /* ---------- 音 ---------- */
 let ac = null;
@@ -248,6 +285,7 @@ function renderReg(){
   $("cReg").textContent = reg.length;
   $("toCompare").hidden = !reg.length;
   $("toCompare").textContent = `登録 ${reg.length}件で探すへ進む`;
+  if (typeof proj!=="undefined" && $("projSel").options.length) renderProj();
 }
 function renderHist(){
   const ok = hist.filter(h=>h.r>=0).length;
@@ -447,7 +485,7 @@ $("reglist").addEventListener("click", e=>{
   reg.splice(+b.dataset.del,1); saveReg(); renderReg(); lastCode = ""; if (running) idleStatus();
 });
 $("resetBtn").onclick = ()=>{
-  $("resetMsg").textContent = tab==="hist" ? "比較の履歴をすべて消します" : `登録（${reg.length}件）をすべて消して最初からやり直します`;
+  $("resetMsg").textContent = tab==="hist" ? `「${proj.name}」の履歴を消します` : `「${proj.name}」の登録（${reg.length}件）を消して最初からやり直します（他の物件はそのまま）`;
   $("resetConfirm").hidden = false;
 };
 $("resetNo").onclick = ()=> $("resetConfirm").hidden = true;
@@ -485,12 +523,69 @@ $("csvBtn").onclick = ()=>{
   const csv = "﻿" + rows.map(r=>r.map(q).join(",")).join("\r\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
-  const d = new Date(); a.download = `探索履歴_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}.csv`;
+  const d = new Date(); a.download = `探索履歴_${proj.name.replace(/[\\/:*?"<>|]/g,"_")}_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}.csv`;
   document.body.appendChild(a); a.click(); a.remove();
 };
 
-renderReg(); setTab("reg");
-if (reg.length) status("var(--warn)","#fff", `前回の登録が${reg.length}件残っています`, "続けて登録するか、右上の「リセット」で消してからカメラ画面をタップしてください");
+/* ---------- 物件の切り替え ---------- */
+function renderProj(){
+  const sel = $("projSel");
+  sel.innerHTML = store.list.map(p=>`<option value="${p.id}"></option>`).join("");
+  [...sel.options].forEach((o,i)=>{ const p = store.list[i]; o.textContent = `${p.name}（${(p.reg||[]).length}件）`; });
+  sel.value = proj.id;
+}
+function switchProj(id, msg){
+  saveStore();
+  proj = store.list.find(p=>p.id===id) || store.list[0];
+  store.cur = proj.id;
+  reg = proj.reg||[]; hist = proj.hist||[]; names = proj.names||{};
+  saveStore(); renderProj(); renderReg(); lastCode = ""; pend = "";
+  setTab(reg.length ? tab : "reg");
+  if (tab==="hist") renderHist();
+  status(running ? "var(--reg)" : "var(--idle)", "#fff", msg || `「${proj.name}」に切り替えました`, reg.length ? `登録 ${reg.length}件。このまま「探す」で照合できます` : "登録はまだありません。探したいバーコードを枠に入れると登録します");
+}
+let formMode = "";
+function openForm(mode){
+  formMode = mode;
+  $("projForm").hidden = false; $("projDelConfirm").hidden = true;
+  $("projDelRow").hidden = mode!=="edit";
+  $("projFormMsg").textContent = mode==="new" ? "新しい物件の名前（今の物件の登録はそのまま残ります）" : `「${proj.name}」の名前を変える／削除する`;
+  $("projOk").textContent = mode==="new" ? "作る" : "名前を変える";
+  $("projName").value = mode==="new" ? "" : proj.name;
+  $("projName").focus();
+}
+$("projSel").onchange = e => { $("projForm").hidden = true; switchProj(e.target.value); };
+$("projNew").onclick = ()=> openForm("new");
+$("projMenu").onclick = ()=> openForm("edit");
+$("projCancel").onclick = ()=> { $("projForm").hidden = true; };
+$("projName").addEventListener("keydown", e=>{ if (e.key==="Enter") $("projOk").click(); });
+$("projOk").onclick = ()=>{
+  let name = $("projName").value.trim();
+  if (formMode==="new"){
+    if (!name) name = "物件" + (store.list.length+1);
+    const id = "p"+Date.now();
+    store.list.push({id, name, reg:[], hist:[], names:{}, t:Date.now()});
+    $("projForm").hidden = true;
+    switchProj(id, `新しい物件「${name}」を作りました`);
+  } else {
+    if (!name) return;
+    proj.name = name; saveStore(); renderProj();
+    $("projForm").hidden = true;
+    status("var(--idle)","#fff", `名前を「${name}」に変えました`, "");
+  }
+};
+$("projDel").onclick = ()=>{ $("projDelConfirm").hidden = false; };
+$("projDelNo").onclick = ()=>{ $("projDelConfirm").hidden = true; };
+$("projDelYes").onclick = ()=>{
+  const old = proj.name;
+  store.list = store.list.filter(p=>p.id!==proj.id);
+  if (!store.list.length) store.list.push({id:"p"+Date.now(), name:"物件1", reg:[], hist:[], names:{}, t:Date.now()});
+  proj = store.list[0]; $("projForm").hidden = true;
+  switchProj(proj.id, `「${old}」を削除しました`);
+};
+
+renderProj(); renderReg(); setTab("reg");
+if (reg.length) status("var(--warn)","#fff", `「${proj.name}」の登録が${reg.length}件あります`, "続けて使うか、上の「＋新しい物件」で別の物件を始められます。カメラ画面をタップしてください");
 else status("var(--idle)","#fff","カメラの開始待ち","上のカメラ画面をタップしてください");
 </script>
 </body>
