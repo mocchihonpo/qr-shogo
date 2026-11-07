@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#3a1426">
+<title>転送ボックス</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+/* 会社の携帯のブラウザ ⇄ 自分のGoogleドライブ「転送ボックス」。送る／受け取る／設定の3タブ */
+:root{
+  --bg:#3a1426; --panel:#4b1b32; --panel2:#57213b; --fg:#f3eef0; --muted:#e3c3d1; --line:#6e2f4c;
+  --accent:#ff8fb6; --accent-fg:#2a0815; --warn:#c77700; --ng:#e5392f; --idle:#4a3a42; --done:#2f6f4b;
+  --f-ui:"BIZ UDPGothic","Hiragino Sans","Noto Sans JP",system-ui,sans-serif;
+  --f-code:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:var(--f-ui);font-size:15px;line-height:1.5}
+body{display:flex;flex-direction:column;overflow:hidden;padding-top:env(safe-area-inset-top,0px);box-shadow:inset 0 6px 0 var(--accent)}
+button,input,select,textarea{font:inherit;color:var(--fg)}
+button{font-weight:700;background:var(--panel);border:1.5px solid var(--line);border-radius:10px;padding:8px 12px;cursor:pointer;min-height:42px}
+button:focus-visible,input:focus-visible,textarea:focus-visible,label.big:focus-within{outline:3px solid var(--accent);outline-offset:2px}
+button:disabled{opacity:.5}
+input,textarea{background:var(--panel2);border:1.5px solid var(--line);border-radius:10px;padding:8px 10px;min-height:42px;width:100%}
+textarea{min-height:90px;resize:vertical}
+.top{display:flex;align-items:center;gap:8px;padding:10px max(12px,env(safe-area-inset-right,0px)) 6px max(12px,env(safe-area-inset-left,0px))}
+.top h1{font-size:16px;margin:0;flex:1;color:var(--accent)}
+.badge{font:700 13px var(--f-code);padding:4px 10px;border-radius:999px;background:var(--idle);white-space:nowrap}
+.badge.ok{background:var(--done)} .badge.wait{background:var(--warn)} .badge.ng{background:var(--ng)}
+main{flex:1;min-height:0;overflow-y:auto;padding:0 max(12px,env(safe-area-inset-right,0px)) 12px max(12px,env(safe-area-inset-left,0px))}
+.view{display:flex;flex-direction:column;gap:10px}
+.view[hidden]{display:none}
+.bigs{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+label.big{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:96px;border-radius:16px;background:var(--accent);color:var(--accent-fg);font-weight:700;font-size:18px;cursor:pointer;user-select:none;text-align:center}
+label.big.sub{background:var(--panel2);color:var(--fg);border:1.5px solid var(--line)}
+label.big small{font-size:12px;font-weight:400}
+label.big input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.row{display:flex;gap:8px}.row>*{flex:1}
+.lbl{font-size:12px;color:var(--muted);margin:2px 0 -6px}
+.msg{border-radius:10px;padding:8px 12px;background:var(--panel);font-size:13px}
+.msg.ng{background:#5a1a1a}.msg.ok{background:#1d3a2a}
+.msg[hidden]{display:none}
+.list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.list li{display:flex;gap:8px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:13px}
+.list .ic{font-size:20px;flex:0 0 auto}
+.list .b{flex:1;min-width:0}
+.list .nm{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.list .sb{font:12px var(--f-code);color:var(--muted);font-variant-numeric:tabular-nums}
+.list button,.list a.open{min-height:36px;padding:4px 12px;font-size:13px;flex:0 0 auto}
+.list a.open{display:inline-flex;align-items:center;border-radius:10px;background:var(--accent);color:var(--accent-fg);font-weight:700;text-decoration:none}
+.st{font-size:12px;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--idle);white-space:nowrap;flex:0 0 auto}
+.st.ok{background:var(--done)}.st.wait{background:var(--warn)}.st.ng{background:var(--ng)}
+.empty{color:var(--muted);text-align:center;padding:18px 8px;font-size:14px}
+.note{font-size:13px;color:var(--muted);margin:0}
+.note a{color:var(--accent)}
+h2{font-size:14px;margin:6px 0 -2px;color:var(--muted)}
+nav{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--line);background:#1f0a14;padding-bottom:env(safe-area-inset-bottom,0px)}
+nav button{border:0;border-radius:0;background:transparent;color:var(--muted);min-height:54px;font-size:13px}
+nav button.on{color:var(--accent)}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>転送ボックス</h1>
+  <span class="badge" id="badge">未設定</span>
+</div>
+
+<main>
+  <section class="view" id="v-send">
+    <div class="bigs">
+      <label class="big">📷 写真を撮る<small>撮ったらすぐ送ります</small><input type="file" id="cam" accept="image/*" capture="environment"></label>
+      <label class="big sub">📎 ファイルを選ぶ<small>写真・PDF・Excelなど</small><input type="file" id="pick" multiple></label>
+    </div>
+    <div class="lbl">メモを書いて送る（テキストファイルになります）</div>
+    <textarea id="memo" placeholder="例：明日の配達分、竹中さんに確認済み"></textarea>
+    <button id="memoSend">メモを送る</button>
+    <div class="msg" id="msg" hidden></div>
+    <h2>送ったもの（この携帯で今日送った分）</h2>
+    <ul class="list" id="sentList"><li class="empty">まだ送っていません</li></ul>
+    <p class="note">届き先：マイドライブ「転送ボックス」→「携帯から」</p>
+  </section>
+
+  <section class="view" id="v-recv" hidden>
+    <button id="reload">一覧を更新</button>
+    <div class="msg" id="rmsg" hidden></div>
+    <h2>パソコンから届いたもの（「携帯へ」フォルダ）</h2>
+    <ul class="list" id="recvList"><li class="empty">「一覧を更新」を押してください</li></ul>
+    <p class="note">パソコンで、マイドライブ「転送ボックス」→「携帯へ」にファイルを入れると、ここに出ます。Googleドキュメント・スプレッドシートはPDFにして開きます。</p>
+  </section>
+
+  <section class="view" id="v-set" hidden>
+    <div class="lbl">中継のApps ScriptのURL（「転送ボックス_受け取り」）</div>
+    <input id="gasUrl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="url">
+    <div class="lbl">合言葉</div>
+    <input id="gasKey" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+    <div class="row"><button id="saveSet">保存</button><button id="test">つながるか試す</button></div>
+    <div class="msg" id="setMsg" hidden></div>
+    <p class="note">入荷品カメラとは別のApps Scriptです。コードは <a href="gas.js" target="_blank" rel="noopener">gas.js</a> にあります。</p>
+    <p class="note">写真は長辺2400pxに縮めて送ります（文字が読める大きさ）。ファイルはそのまま送ります（1つ25MBまで）。</p>
+  </section>
+</main>
+
+<nav>
+  <button data-tab="send" class="on">送る</button>
+  <button data-tab="recv">受け取る</button>
+  <button data-tab="set">設定</button>
+</nav>
+
+<script>
+const $ = id => document.getElementById(id);
+const load = (k, d) => { try{ const v = JSON.parse(localStorage.getItem(k)); return v ?? d; }catch(e){ return d; } };
+const save = (k, v) => { try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} };
+let SET = load("okuru.set", {url:"", key:""});
+const MAX = 25*1024*1024;
+const p2 = n => String(n).padStart(2,"0");
+const stamp = d => `${d.getFullYear()}${p2(d.getMonth()+1)}${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
+const kb = n => n < 1024*1024 ? Math.max(1,Math.round(n/1024))+"KB" : (n/1024/1024).toFixed(1)+"MB";
+const icon = (name, mime) => /^image\//.test(mime||"") || /\.(jpe?g|png|heic|gif)$/i.test(name) ? "🖼" : /pdf/i.test(mime||name) ? "📄" : /sheet|excel|\.xlsx?$|\.csv$/i.test((mime||"")+name) ? "📊" : /text|\.txt$/i.test((mime||"")+name) ? "📝" : "📁";
+
+function showMsg(id, t, cls){ const m = $(id); m.hidden = false; m.className = "msg " + (cls||""); m.textContent = t; }
+
+/* ---------- 送る ---------- */
+const Q = [];  // {name, mime, blob|text, size, status, err}
+function shrink(file, max){
+  return new Promise(res=>{
+    const u = URL.createObjectURL(file), img = new Image();
+    img.onload = ()=>{
+      const s = Math.min(1, max/Math.max(img.naturalWidth, img.naturalHeight));
+      const c = document.createElement("canvas"); c.width = Math.round(img.naturalWidth*s); c.height = Math.round(img.naturalHeight*s);
+      c.getContext("2d").drawImage(img,0,0,c.width,c.height); URL.revokeObjectURL(u);
+      c.toBlob(b=>res(b||file), "image/jpeg", .88);
+    };
+    img.onerror = ()=>{ URL.revokeObjectURL(u); res(file); };
+    img.src = u;
+  });
+}
+const toB64 = blob => new Promise((res,rej)=>{ const r = new FileReader(); r.onload = ()=>res(String(r.result).split(",")[1]); r.onerror = rej; r.readAsDataURL(blob); });
+
+async function addPhoto(f){
+  const blob = await shrink(f, 2400);
+  Q.unshift({name:`写真_${stamp(new Date())}.jpg`, mime:"image/jpeg", blob, size:blob.size, status:"wait"});
+}
+function addFile(f){
+  const d = new Date(f.lastModified || Date.now()), base = (f.name||"file").replace(/[\\/:*?"<>|]/g,"_");
+  if (f.size > MAX){ Q.unshift({name:base, size:f.size, status:"ng", err:"25MBを超えているので送れません"}); return; }
+  Q.unshift({name:`${stamp(new Date())}_${base}`, mime:f.type||"application/octet-stream", blob:f, size:f.size, status:"wait"});
+}
+let sending = false;
+async function sendQueue(){
+  if (sending) return;
+  if (!SET.url){ showMsg("msg","先に「設定」でApps ScriptのURLと合言葉を入れてください","ng"); return; }
+  sending = true; renderSent();
+  for (const it of [...Q].reverse()){
+    if (it.status !== "wait" && it.status !== "retry") continue;
+    it.status = "sending"; renderSent();
+    try{
+      const body = {key:SET.key||"", name:it.name};
+      if (it.text != null) body.text = it.text; else { body.mime = it.mime; body.data = await toB64(it.blob); }
+      const j = await (await fetch(SET.url, {method:"POST", redirect:"follow", body:JSON.stringify(body)})).json();
+      if (j.ok){ it.status = "ok"; it.blob = null; } else { it.status = "ng"; it.err = j.error||"送れませんでした"; }
+    }catch(e){ it.status = "ng"; it.err = "通信できませんでした（電波の良いところで「再送」）"; }
+    renderSent();
+  }
+  sending = false; renderSent();
+  const ng = Q.filter(i=>i.status==="ng" && i.blob!==undefined).length, ok = Q.filter(i=>i.status==="ok").length;
+  if (ng) showMsg("msg", `送れなかったものがあります。「再送」を押してください`, "ng");
+  else if (ok) showMsg("msg", `ドライブに届きました（「転送ボックス」→「携帯から」）`, "ok");
+}
+const ST = {wait:["待ち","wait"], retry:["待ち","wait"], sending:["送信中…","wait"], ok:["届きました","ok"], ng:["失敗","ng"]};
+function renderSent(){
+  const L = $("sentList");
+  const wait = Q.filter(i=>i.status!=="ok").length, ng = Q.some(i=>i.status==="ng");
+  const bd = $("badge");
+  bd.textContent = !SET.url ? "未設定" : wait ? `未送信 ${wait}` : "つながり設定済み";
+  bd.className = "badge " + (!SET.url ? "" : ng ? "ng" : wait ? "wait" : "ok");
+  if (!Q.length){ L.innerHTML = '<li class="empty">まだ送っていません</li>'; return; }
+  L.innerHTML = "";
+  for (const it of Q){
+    const li = document.createElement("li");
+    const [t,c] = ST[it.status]||ST.wait;
+    li.innerHTML = `<span class="ic"></span><div class="b"><div class="nm"></div><div class="sb"></div></div><span class="st ${c}">${t}</span>`;
+    li.querySelector(".ic").textContent = icon(it.name, it.mime);
+    li.querySelector(".nm").textContent = it.name;
+    li.querySelector(".sb").textContent = (it.text!=null ? "メモ" : kb(it.size||0)) + (it.status==="ng" && it.err ? "　" + it.err : "");
+    if (it.status==="ng" && (it.blob || it.text!=null)){
+      const b = document.createElement("button"); b.textContent = "再送";
+      b.onclick = ()=>{ it.status = "retry"; sendQueue(); };
+      li.append(b);
+    }
+    L.append(li);
+  }
+}
+$("cam").onchange = async e => { const f = [...e.target.files]; e.target.value = ""; for (const x of f) await addPhoto(x); renderSent(); sendQueue(); };
+$("pick").onchange = async e => { const f = [...e.target.files]; e.target.value = ""; for (const x of f){ if (/^image\/(jpeg|png|heic|heif)/.test(x.type) && x.size > 3*1024*1024) await addPhoto(x); else addFile(x); } renderSent(); sendQueue(); };
+$("memoSend").onclick = ()=>{
+  const t = $("memo").value.trim(); if (!t) return showMsg("msg","メモが空です","ng");
+  Q.unshift({name:`メモ_${stamp(new Date())}.txt`, text:t, size:t.length, status:"wait"});
+  $("memo").value = ""; renderSent(); sendQueue();
+};
+window.addEventListener("online", ()=>{ Q.forEach(i=>{ if (i.status==="ng" && (i.blob||i.text!=null)) i.status = "retry"; }); sendQueue(); });
+
+/* ---------- 受け取る ---------- */
+const opened = new Map(); // id -> blob URL
+async function reload(){
+  if (!SET.url) return showMsg("rmsg","先に「設定」でApps ScriptのURLと合言葉を入れてください","ng");
+  showMsg("rmsg","読み込み中…");
+  try{
+    const u = new URL(SET.url); u.searchParams.set("key", SET.key||""); u.searchParams.set("action","list");
+    const j = await (await fetch(u.toString(), {redirect:"follow"})).json();
+    if (!j.ok) return showMsg("rmsg", j.error||"読み込めませんでした", "ng");
+    $("rmsg").hidden = true;
+    const L = $("recvList"); L.innerHTML = "";
+    if (!j.recv.length){ L.innerHTML = '<li class="empty">「携帯へ」フォルダは空です</li>'; return; }
+    for (const f of j.recv){
+      const li = document.createElement("li"), d = new Date(f.at);
+      li.innerHTML = `<span class="ic"></span><div class="b"><div class="nm"></div><div class="sb"></div></div>`;
+      li.querySelector(".ic").textContent = icon(f.name, f.mime);
+      li.querySelector(".nm").textContent = f.name;
+      li.querySelector(".sb").textContent = `${d.getMonth()+1}/${d.getDate()} ${p2(d.getHours())}:${p2(d.getMinutes())}　${f.size?kb(f.size):""}`;
+      const b = document.createElement("button"); b.textContent = "取り込む";
+      b.onclick = ()=> fetchOne(f, li, b);
+      li.append(b);
+      if (opened.has(f.id)) showOpen(li, b, opened.get(f.id));
+      L.append(li);
+    }
+  }catch(e){ showMsg("rmsg","通信できませんでした。電波と、設定のURLを確認してください","ng"); }
+}
+function showOpen(li, b, o){
+  const a = document.createElement("a"); a.className = "open"; a.textContent = "開く";
+  a.href = o.url; a.target = "_blank"; a.rel = "noopener"; a.download = o.name;
+  b.replaceWith(a);
+}
+async function fetchOne(f, li, b){
+  b.disabled = true; b.textContent = "取り込み中…";
+  try{
+    const u = new URL(SET.url); u.searchParams.set("key", SET.key||""); u.searchParams.set("action","get"); u.searchParams.set("id", f.id);
+    const j = await (await fetch(u.toString(), {redirect:"follow"})).json();
+    if (!j.ok) throw new Error(j.error||"取り込めませんでした");
+    const bin = atob(j.data), arr = new Uint8Array(bin.length);
+    for (let i=0;i<bin.length;i++) arr[i] = bin.charCodeAt(i);
+    const o = {url:URL.createObjectURL(new Blob([arr],{type:j.mime||"application/octet-stream"})), name:j.name||f.name};
+    opened.set(f.id, o); showOpen(li, b, o);
+  }catch(e){ b.disabled = false; b.textContent = "取り込む"; showMsg("rmsg", e.message||"取り込めませんでした", "ng"); }
+}
+$("reload").onclick = reload;
+
+/* ---------- 設定 ---------- */
+function fillSet(){ $("gasUrl").value = SET.url||""; $("gasKey").value = SET.key||""; }
+function readSet(){ SET = {url:$("gasUrl").value.trim(), key:$("gasKey").value.normalize("NFKC").trim()}; save("okuru.set", SET); renderSent(); }
+$("saveSet").onclick = ()=>{ readSet(); showMsg("setMsg", SET.url ? "保存しました。「つながるか試す」で確認できます" : "URLが空です", SET.url ? "ok" : "ng"); };
+$("test").onclick = async ()=>{
+  readSet();
+  if (!SET.url) return showMsg("setMsg","URLを入れてください","ng");
+  showMsg("setMsg","確認中…");
+  try{
+    const u = new URL(SET.url); u.searchParams.set("key", SET.key||"");
+    const j = await (await fetch(u.toString(), {redirect:"follow"})).json();
+    if (j.ok && j.send) showMsg("setMsg", `つながりました。送り先：「${j.send}」／受け取り：「${j.recv}」`, "ok");
+    else if (j.ok) showMsg("setMsg", "つながりましたが、入荷品カメラ用のURLのようです。転送ボックス用のApps ScriptのURLを入れてください", "ng");
+    else showMsg("setMsg", j.error || "合言葉が違います", "ng");
+  }catch(e){ showMsg("setMsg","つながりません。URLと、デプロイの「アクセスできるユーザー：全員」を確認してください","ng"); }
+};
+
+/* ---------- タブ ---------- */
+document.querySelectorAll("nav button").forEach(b => b.onclick = ()=>{
+  document.querySelectorAll("nav button").forEach(x => x.classList.toggle("on", x === b));
+  ["send","recv","set"].forEach(t => $("v-"+t).hidden = b.dataset.tab !== t);
+  if (b.dataset.tab === "recv" && SET.url) reload();
+});
+window.addEventListener("beforeunload", e=>{ if (Q.some(i=>i.status==="wait"||i.status==="sending"||i.status==="retry")){ e.preventDefault(); e.returnValue = ""; } });
+
+fillSet(); renderSent();
+if (!SET.url){ document.querySelector('nav button[data-tab="set"]').click(); showMsg("setMsg","最初に、転送ボックス用のApps ScriptのURLと合言葉を入れてください（作り方は gas.js の先頭に書いてあります）"); }
+</script>
+</body>
+</html>
