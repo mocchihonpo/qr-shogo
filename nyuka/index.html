@@ -54,6 +54,12 @@ label.pick{display:flex;align-items:center;justify-content:center;min-height:42p
 .acts .share{background:var(--teams);border-color:var(--teams);color:#fff;margin-left:auto}
 .item .note{min-height:36px;padding:4px 8px;font-size:13px;background:#1f2430;border-color:#353c4d}
 .chips{display:flex;flex-wrap:wrap;gap:6px}
+.people{display:flex;flex-wrap:wrap;gap:6px}
+.people button{min-height:38px;padding:4px 12px;font-size:14px;background:var(--teams);border-color:var(--teams);color:#fff;border-radius:999px}
+.prow{display:flex;gap:6px;align-items:center}
+.prow input{flex:1;min-width:0}
+.prow input.pn{flex:0 0 7em}
+.prow button{min-height:40px;padding:4px 10px;flex:0 0 auto}
 .chips button{min-height:34px;padding:3px 10px;font-size:13px;border-radius:999px}
 .empty{color:var(--muted);text-align:center;padding:24px 8px;font-size:14px}
 .note{font-size:13px;color:var(--muted)}
@@ -109,6 +115,10 @@ h1{color:var(--accent)}
     <p class="note">Teamsへ送るときは、写真の「Teams」ボタンを押して、出てきた一覧からTeamsを選びます。</p>
     <p class="note">写真は、送信できたものも2日間はこの携帯の中に残ります（Teamsへ送り直せるように）。それより古いものは自動で消えます。Driveの写真は消えません。</p>
     <p class="note">Apps Scriptのコードは <a href="gas.js" target="_blank" rel="noopener">gas.js</a> にあります。</p>
+    <div class="lbl" style="margin-top:8px">担当者ボタン（押すとTeamsでその人とのチャットが開きます）</div>
+    <div id="peopleEdit" style="display:flex;flex-direction:column;gap:6px"></div>
+    <div class="row"><button id="personAdd">＋担当者を追加</button><button id="personSave">担当者を保存</button></div>
+    <p class="note">メールアドレスは、その人のTeams（会社）のアドレスです。この携帯の中にだけ保存されます。</p>
     <button id="clearSent">送信済みの写真をこの携帯から消す</button>
   </section>
 </main>
@@ -123,6 +133,8 @@ const $ = id => document.getElementById(id);
 const load = (k, d) => { try{ const v = JSON.parse(localStorage.getItem(k)); return v ?? d; }catch(e){ return d; } };
 const save = (k, v) => { try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} };
 let SET = load("nyuka.set", {url:"", key:"", auto:true, size:"1600"});
+/* 担当者ボタン：名前とTeamsのメールアドレス（この携帯の中だけに保存） */
+let PEOPLE = load("nyuka.people", [{name:"四津谷さん", mail:""}]);
 const KEEP_MS = 2*24*3600*1000;
 
 /* ---- 写真の保管（IndexedDB。使えない携帯ではメモリだけ） ---- */
@@ -261,6 +273,29 @@ async function share(it){
   catch(e){ if (e.name !== "AbortError") showMsg("共有できませんでした："+(e.message||e.name), "ng"); }
 }
 
+/* ---- 担当者へ直接：写真をコピーして、Teamsのその人とのチャットを開く ---- */
+function toPng(blob){
+  return new Promise((res, rej)=>{
+    const u = URL.createObjectURL(blob), img = new Image();
+    img.onload = ()=>{ const c = document.createElement("canvas"); c.width = img.naturalWidth; c.height = img.naturalHeight;
+      c.getContext("2d").drawImage(img,0,0); URL.revokeObjectURL(u); c.toBlob(b=> b ? res(b) : rej(new Error("png")), "image/png"); };
+    img.onerror = ()=>{ URL.revokeObjectURL(u); rej(new Error("img")); };
+    img.src = u;
+  });
+}
+async function sendTo(it, p){
+  const link = "https://teams.microsoft.com/l/chat/0/0?users=" + encodeURIComponent(p.mail) + (it.memo ? "&message=" + encodeURIComponent(it.memo) : "");
+  let copied = false;
+  try{
+    if (navigator.clipboard && window.ClipboardItem){
+      await navigator.clipboard.write([new ClipboardItem({"image/png": toPng(it.blob)})]);
+      copied = true;
+    }
+  }catch(e){ copied = false; }
+  showMsg(copied ? `写真をコピーしました。Teamsで${p.name}とのチャットが開いたら、入力欄を長押し→「ペースト」→送信` : `Teamsを開きます（写真のコピーはできませんでした。いつもの「Teams」ボタンで送ってください）`, copied ? "ok" : "ng");
+  setTimeout(()=>{ location.href = link; }, 300);
+}
+
 /* ---- 表示 ---- */
 let msgT = 0;
 function showMsg(t, cls){ const m = $("msg"); m.hidden = false; m.className = "msg " + (cls||""); m.textContent = t; clearTimeout(msgT); msgT = setTimeout(()=>m.hidden=true, 6000); }
@@ -284,7 +319,8 @@ function render(){
       <div class="nm"></div>
       <input class="memo" placeholder="メモ（Teamsに一緒に送る文）" autocomplete="off">
       <input class="note" placeholder="気づき（自分用・Teamsには送らない）" autocomplete="off">
-      <div class="acts"><span class="st ${stC}">${stT}</span>${it.dirty?'<span class="st wait">メモ未反映</span>':""}${it.status==="ng"?'<button class="re">再送</button>':""}<button class="del" aria-label="一覧から消す">✕</button><button class="share">Teams</button></div></div>`;
+      <div class="acts"><span class="st ${stC}">${stT}</span>${it.dirty?'<span class="st wait">メモ未反映</span>':""}${it.status==="ng"?'<button class="re">再送</button>':""}<button class="del" aria-label="一覧から消す">✕</button><button class="share">Teams</button></div>
+      <div class="people"></div></div>`;
     el.querySelector("img").src = it.url;
     el.querySelector("img").onclick = ()=>{ $("zoom").querySelector("img").src = it.url; $("zoom").hidden = false; };
     el.querySelector(".nm").textContent = `${p2(d.getHours())}:${p2(d.getMinutes())}　${it.name}`;
@@ -294,6 +330,12 @@ function render(){
     const nt = el.querySelector(".note"); nt.value = it.note || "";
     nt.onchange = ()=>{ it.note = nt.value.trim(); edited(it); };
     el.querySelector(".share").onclick = ()=>{ const v = mm.value.trim(); if (v !== (it.memo||"")){ it.memo = v; edited(it); } share(it); };
+    const pp = el.querySelector(".people");
+    PEOPLE.filter(p=>p.mail).forEach(p=>{
+      const b = document.createElement("button"); b.textContent = "→ " + p.name;
+      b.onclick = ()=>{ const v = mm.value.trim(); if (v !== (it.memo||"")){ it.memo = v; edited(it); } sendTo(it, p); };
+      pp.append(b);
+    });
     const re = el.querySelector(".re"); if (re) re.onclick = ()=> sendQueue();
     el.querySelector(".del").onclick = ()=>{
       if (it.status !== "ok" && !confirm("まだDriveに送っていません。この携帯から消しますか？")) return;
@@ -326,6 +368,30 @@ $("clearSent").onclick = ()=>{
   for (const it of sent){ URL.revokeObjectURL(it.url); ITEMS.delete(it.name); dbDel(it.name); }
   render(); setMsg(`${sent.length}枚消しました`, "ok");
 };
+
+function renderPeople(){
+  const box = $("peopleEdit"); box.innerHTML = "";
+  PEOPLE.forEach((p,i)=>{
+    const r = document.createElement("div"); r.className = "prow";
+    r.innerHTML = `<input class="pn" placeholder="名前" autocomplete="off"><input class="pm" placeholder="Teamsのメールアドレス" type="email" inputmode="email" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"><button aria-label="この担当者を消す">✕</button>`;
+    r.querySelector(".pn").value = p.name||""; r.querySelector(".pm").value = p.mail||"";
+    r.querySelector("button").onclick = ()=>{ readPeople(); PEOPLE.splice(i,1); renderPeople(); };
+    box.append(r);
+  });
+}
+function readPeople(){
+  PEOPLE = [...$("peopleEdit").querySelectorAll(".prow")].map(r=>({name:r.querySelector(".pn").value.trim(), mail:r.querySelector(".pm").value.trim()})).filter(p=>p.name||p.mail);
+}
+$("personAdd").onclick = ()=>{ readPeople(); PEOPLE.push({name:"", mail:""}); renderPeople(); };
+$("personSave").onclick = ()=>{
+  readPeople();
+  const bad = PEOPLE.filter(p=>p.mail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(p.mail));
+  if (bad.length) return setMsg(`メールアドレスの形が正しくありません：${bad.map(p=>p.name||p.mail).join("、")}`, "ng");
+  save("nyuka.people", PEOPLE); renderPeople(); render();
+  const n = PEOPLE.filter(p=>p.mail).length;
+  setMsg(n ? `保存しました。写真の下に担当者ボタンが${n}個出ます` : "保存しました（メールアドレスが入っている担当者がいないので、ボタンはまだ出ません）", "ok");
+};
+renderPeople();
 
 /* ---- タブ・入力 ---- */
 document.querySelectorAll("nav button").forEach(b => b.onclick = ()=>{
