@@ -146,6 +146,8 @@ h1{color:var(--accent)}
   <!-- 一覧 -->
   <section class="view" id="v-list" hidden>
     <button id="shukkaOnly" style="width:100%;padding:14px;font-size:17px;font-weight:700;background:var(--accent);color:var(--accent-fg);border-color:var(--accent)">📦 最新の出荷リストだけで照合する</button>
+    <button id="isoOnly" style="width:100%;padding:14px;font-size:17px;font-weight:700;background:#f2c94c;color:#2a1f00;border-color:#f2c94c;margin-top:8px">🚚 移送分（新庄→問屋町）だけで照合する</button>
+    <p class="note" id="isoInfo" style="margin:6px 0 0"></p>
     <p class="note" style="margin:6px 0 10px">会社のメールの出荷リスト（照合ブザーフォルダの一番新しいもの）の品物だけを出します。下の分け方で配送担当者を選んでから照合してください。</p>
     <p class="lbl">区分</p>
     <div class="chips" id="catChips"></div>
@@ -290,9 +292,13 @@ function sinceDate(){
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 }
 // 区分・期間で絞った行（グループ選択の前）
+// 移送＝新庄倉庫から問屋町倉庫へ持ってくるもの（仕分処理に「移送」、または配送担当者が「移送」）
+const isIso = r => r.cat==="S" && (/移送/.test(r["仕分処理"]||"") || /移送/.test(r["配送担当者"]||""));
+function isoDays(){ return [...new Set(ROWS.filter(isIso).map(r=>String(r["計上日"]||"").replace(/\D/g,"").slice(0,8)).filter(Boolean))].sort(); }
+const mdOf = d => d.length===8 ? `${+d.slice(4,6)}月${+d.slice(6,8)}日` : d;
 function baseRows(){
   const since = sinceDate();
-  return ROWS.filter(r=> !r.ex && VIEW.cats.includes(r.cat) && (VIEW.days==="today" ? (r.src==="当日"||r.cat==="M"||r.cat==="S") : (!since || r.cat==="M" || r.cat==="S" || String(r["計上日"]).slice(0,10) >= since)));
+  return ROWS.filter(r=> !r.ex && VIEW.cats.includes(r.cat) && (!VIEW.iso || isIso(r)) && (VIEW.days==="today" ? (r.src==="当日"||r.cat==="M"||r.cat==="S") : (!since || r.cat==="M" || r.cat==="S" || String(r["計上日"]).slice(0,10) >= since)));
 }
 /* 分け方 */
 const GROUPS = {
@@ -382,7 +388,9 @@ function renderList(){
     return chip(VIEW.cats.includes(c.id), `${c.name} ${n}`, `data-cat="${c.id}"`);
   }).join("");
   $("dayChips").innerHTML = [["today","今日のAccessだけ"],["3","3日"],["7","7日"],["all","全部"]].map(([k,l])=>chip(VIEW.days===k, l, `data-days="${k}"`)).join("");
-  $("toScan").textContent = `「${VIEW.grp ?? "すべて"}」で照合する`;
+  $("toScan").textContent = VIEW.iso ? `移送分「${VIEW.grp ?? "すべて"}」で照合する` : `「${VIEW.grp ?? "すべて"}」で照合する`;
+  { const n = ROWS.filter(r=>isIso(r)&&!r.ex).length, ds = isoDays();
+    $("isoInfo").textContent = n ? `出荷リスト ${ds.map(mdOf).join("・")}出荷分のうち、移送 ${n}件${VIEW.iso ? "（今はこの移送分だけを表示中）" : ""}` : "読み込んだ出荷リストに移送の品物がありません"; }
   $("grpChips").innerHTML = Object.entries(GROUPS).map(([k,g])=>chip(VIEW.by===k, g.name, `data-by="${k}"`)).join("");
   const gl = groupList(), all = baseRows(), ad = all.filter(r=>DONE[r.id]).length;
   $("grpList").innerHTML =
@@ -764,7 +772,7 @@ setInterval(()=>{ if(running && !document.hidden && camDead()) camCheck(); }, 20
 $("manualForm").onsubmit = e=>{ e.preventDefault(); audio(); handle($("manualIn").value, false); $("manualIn").value = ""; };
 $("v-list").addEventListener("click", e=>{
   const b = e.target.closest("button"); if(!b) return;
-  if (b.dataset.cat){ const c = b.dataset.cat; VIEW.cats = VIEW.cats.includes(c) ? VIEW.cats.filter(x=>x!==c) : VIEW.cats.concat(c); VIEW.grp = null; }
+  if (b.dataset.cat){ const c = b.dataset.cat; VIEW.cats = VIEW.cats.includes(c) ? VIEW.cats.filter(x=>x!==c) : VIEW.cats.concat(c); VIEW.grp = null; VIEW.iso = false; }
   else if (b.dataset.days){ VIEW.days = b.dataset.days; VIEW.grp = null; }
   else if (b.dataset.by){ VIEW.by = b.dataset.by; VIEW.grp = null; }
   else if ("grp" in b.dataset){ const g = b.dataset.grp; VIEW.grp = g==="" ? null : g; }
@@ -772,6 +780,10 @@ $("v-list").addEventListener("click", e=>{
   else if (b.id==="shukkaOnly"){
     if (!(DATA.shukka||[]).length){ alert("出荷リストのデータがありません。パソコンで出荷リストの取り込みをしてから、「設定」で「シートから読み込む」を押してください"); return; }
     VIEW = {cats:["S"], days:"all", by:"haiso", grp:null};
+  }
+  else if (b.id==="isoOnly"){
+    if (!ROWS.some(isIso)){ alert("読み込んだ出荷リストに移送の品物がありません。「設定」で「シートから読み込む」を押してから、もう一度押してください"); return; }
+    VIEW = {cats:["S"], days:"all", by:"shiwake", grp:null, iso:true};
   }
   saveView(); renderList();
 });
