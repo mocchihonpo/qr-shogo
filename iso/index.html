@@ -82,10 +82,11 @@ h2{font-size:14px;margin:6px 0 0;color:var(--muted)}
 .list li{display:flex;gap:10px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:13px}
 .list li.done{opacity:.55}
 .list .ck{flex:0 0 26px;height:26px;border-radius:7px;border:2px solid var(--line);display:flex;align-items:center;justify-content:center;font-weight:700}
-.list li.done .ck{background:var(--ok);border-color:var(--ok)}
+.list li.done .ck{background:var(--ok);border-color:var(--ok);color:#fff}
+.list .tag{font-size:11px;border:1px solid var(--line);border-radius:6px;padding:0 5px;margin-left:6px;white-space:nowrap}
 .list .m{font:700 13px var(--f-code)}
 .list .s{color:var(--muted);font-size:12px}
-.sum{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.sum{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
 .sum div{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:6px;text-align:center;font-size:12px;color:var(--muted)}
 .sum b{display:block;font:700 20px var(--f-code);color:var(--fg)}
 nav{display:flex;gap:6px;padding:6px max(12px,env(safe-area-inset-right,0px)) calc(6px + env(safe-area-inset-bottom,0px)) max(12px,env(safe-area-inset-left,0px));border-top:1px solid var(--line);background:var(--panel)}
@@ -122,7 +123,8 @@ nav button.on{background:var(--accent);color:var(--accent-fg)}
   <!-- 移送一覧 -->
   <section class="view" id="v-list" hidden>
     <p class="note" id="listInfo"></p>
-    <div class="sum"><div>移送<b id="nAll">0</b></div><div>案内した<b id="nSent">0</b></div><div>まだ<b id="nLeft">0</b></div></div>
+    <div class="sum"><div>移送<b id="nAll">0</b></div><div>届いた<b id="nGot">0</b></div><div>案内した<b id="nSent">0</b></div><div>まだ来ない<b id="nLeft">0</b></div></div>
+    <p class="note">箱を読むと、ここにチェックが付きます。まだ来ていない品物が上に並びます。</p>
     <ul class="list" id="isoList"></ul>
   </section>
 
@@ -393,16 +395,20 @@ function renderBadge(){
 /* ---- 移送一覧 ---- */
 function renderList(){
   const iso = (DATA.shukka||[]).filter(isIso);
-  const sent = new Set(), pend = new Set();
-  for (const c of CARDS.values()) for (const x of c.items) (c.sent ? sent : pend).add(norm(x.code));
+  // 読んだ品物（案内カードに入ったもの）＝届いた。送ったカードのもの＝案内した。後ろの01・011の違いは無視する
+  const got = new Set(), sent = new Set();
+  for (const c of CARDS.values()) for (const x of c.items){ const k = mbase(x.code) || norm(x.code); got.add(k); if (c.sent) sent.add(k); }
+  const key = r => mbase(r["マシンNo"]) || norm(r["マシンNo"]);
   const days = [...new Set(iso.map(r=>String(r["出荷日"]||"")))].sort();
   $("listInfo").textContent = DATA.at ? `出荷リスト ${days.join("・")} の移送分（読み込み ${DATA.at}）` : "設定タブで「シートから読み込む」を押してください";
-  $("nAll").textContent = iso.length; $("nSent").textContent = iso.filter(r=>sent.has(norm(r["マシンNo"]))).length;
-  $("nLeft").textContent = iso.filter(r=>!sent.has(norm(r["マシンNo"]))).length;
-  const sorted = iso.slice().sort((a,b)=> tanN(a["担当者"]).localeCompare(tanN(b["担当者"])));
+  $("nAll").textContent = iso.length;
+  $("nGot").textContent = iso.filter(r=>got.has(key(r))).length;
+  $("nSent").textContent = iso.filter(r=>sent.has(key(r))).length;
+  $("nLeft").textContent = iso.filter(r=>!got.has(key(r))).length;
+  const sorted = iso.slice().sort((a,b)=> (got.has(key(a))?1:0)-(got.has(key(b))?1:0) || tanN(a["担当者"]).localeCompare(tanN(b["担当者"])));
   $("isoList").innerHTML = sorted.map(r=>{
-    const k = norm(r["マシンNo"]), s = sent.has(k), w = pend.has(k);
-    return `<li class="${s ? "done" : ""}"><span class="ck">${s ? "✓" : w ? "…" : ""}</span><span style="min-width:0;flex:1"><span class="m">${esc(r["マシンNo"])}</span>　${esc(r["形名"]||"")} ×${esc(r["数量"])}<div class="s">${esc([whoLine(tanN(r["担当者"])), r["得意先名"], r["仕分処理"]].filter(Boolean).join("　"))}</div></span></li>`;
+    const k = key(r), g = got.has(k), s2 = sent.has(k);
+    return `<li class="${g ? "done" : ""}"><span class="ck">${g ? "✓" : ""}</span><span style="min-width:0;flex:1"><span class="m">${esc(r["マシンNo"])}</span>　${esc(r["形名"]||"")} ×${esc(r["数量"])}${g ? `<span class="tag">${s2 ? "案内済" : "届いた"}</span>` : ""}<div class="s">${esc([whoLine(tanN(r["担当者"])), r["得意先名"], r["仕分処理"]].filter(Boolean).join("　"))}</div></span></li>`;
   }).join("") || '<li class="note">移送の品物はありません</li>';
 }
 
