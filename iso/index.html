@@ -138,9 +138,13 @@ nav button.on{background:var(--accent);color:var(--accent-fg)}
     <div class="lbl">合言葉</div>
     <input id="gasKey" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
     <div class="lbl">履歴（history）を何日前まで読むか</div>
-    <select id="gasDays"><option>7</option><option selected>14</option><option>30</option></select>
+    <select id="gasDays"><option>7</option><option selected>14</option><option>30</option><option>60</option><option>90</option></select>
     <button id="saveSet">保存</button>
     <div class="msg" id="setMsg" hidden></div>
+
+    <h2>音声案内</h2>
+    <label class="note" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="voiceOn" style="width:22px;height:22px"> 読み取りの結果を声で知らせる（「木下さん、移送品です」など）</label>
+    <button id="voiceTest" type="button">声を試す</button>
 
     <h2>担当者表（番号・担当者名・アシスタント名）</h2>
     <p class="note">1行に1人。「担当者番号、担当者名、アシスタント名」の順に、タブかカンマで区切ります。スプレッドシートからそのまま貼り付けてもOKです（番号が6桁の行だけ使います）。この携帯の中にだけ保存されます。</p>
@@ -247,19 +251,22 @@ function handle(code, fromCam){
   // 前に「担当者不明」に入った番号が、新しいデータで担当者が分かるようになったら、その人の案内へ移す
   if (it && it.tan && [...CARDS.values()].some(c => !c.sent && !c.tan && c.items.some(same))){ resolveUnknown(); render(); }
   const already = [...CARDS.values()].find(c => !c.sent && c.items.some(same));
-  if (already){ beep("dup"); vib(60); status("var(--warn)", "もう入っています", `${it ? it.code : code}　${whoLine(already.tan)}`); return; }
+  if (already){ beep("dup"); vib(60); status("var(--warn)", "もう入っています", `${it ? it.code : code}　${whoLine(already.tan)}`); say("もう読みました"); return; }
   if (!it){
     beep("ng"); vib([200,80,200]);
     const c = openCardFor("") || newCard("");
     c.items.push({code, kata:"", qty:"", cust:"", order:"", shiwake:"", day:"", iso:false});
     dbPut(c); render();
     status("var(--ng)", "データにありません", `${code}　「担当者不明」の案内に入れました。担当者番号を入れてください`);
+    say("データにありません。担当者不明に入れました");
     return;
   }
   const c = openCardFor(it.tan) || newCard(it.tan);
   c.items.push(it); dbPut(c); render();
   beep(it.iso ? "ok" : "dup"); vib(it.iso ? 150 : [80,60,80]);
   status(it.iso ? "var(--ok)" : "var(--warn)", `${whoLine(it.tan)}${it.iso ? "" : "（移送の品ではありません）"}`, `${it.code}　${it.kata} ×${it.qty}　${it.cust}`);
+  if (it.iso){ const n = leftCount(); say(`${sayName(it.tan)}、移送品です。` + (n ? `残り${n}件` : "移送品は全部届きました")); }
+  else say(`${sayName(it.tan)}。移送の品ではありません`);
 }
 function whoLine(tan){
   if (!tan) return "担当者不明";
@@ -459,6 +466,23 @@ function setMsg(t, cls){ const m = $("setMsg"); m.hidden = false; m.className = 
 let ac = null;
 function audio(){ if (!ac){ const C = window.AudioContext || window.webkitAudioContext; if (C) ac = new C(); } if (ac && ac.state === "suspended") ac.resume(); return ac; }
 function tone(f, st, d, type="sine", vol=.3){ const a = audio(); if (!a) return; const o = a.createOscillator(), g = a.createGain(); o.type = type; o.frequency.value = f; g.gain.setValueAtTime(vol, a.currentTime+st); g.gain.exponentialRampToValueAtTime(.001, a.currentTime+st+d); o.connect(g).connect(a.destination); o.start(a.currentTime+st); o.stop(a.currentTime+st+d+.02); }
+/* ---- 音声案内（携帯の読み上げ機能。電波がなくても使える） ---- */
+let VOICE = load("iso.voice", true);
+function say(text){
+  if (!VOICE || !("speechSynthesis" in window)) return;
+  try{
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = "ja-JP"; u.rate = 1.1;
+    const v = speechSynthesis.getVoices().find(x => /^ja/i.test(x.lang)); if (v) u.voice = v;
+    speechSynthesis.speak(u);
+  }catch(e){}
+}
+const sayName = tan => { if (!tan) return "担当者不明"; const p = PEOPLE.get(tan); return p && p.name ? san(p.name) : "担当 " + String(tan).split("").join(" "); };
+function leftCount(){
+  const got = new Set(); for (const c of CARDS.values()) for (const x of c.items) got.add(mbase(x.code) || norm(x.code));
+  return (DATA.shukka||[]).filter(isIso).filter(r => !got.has(mbase(r["マシンNo"]) || norm(r["マシンNo"]))).length;
+}
 function beep(k){ if (k==="ok"){ tone(1320,0,.12); tone(1760,.12,.18); } else if (k==="dup"){ tone(880,0,.15,"triangle"); } else { tone(220,0,.35,"square",.2); } }
 const vib = p => { try{ navigator.vibrate && navigator.vibrate(p); }catch(e){} };
 
@@ -508,6 +532,8 @@ async function startCam(){
     catch(e2){ $("tapStart").hidden = false; $("tapStart").innerHTML = "カメラを使えませんでした<small>" + camWhy(e2) + "</small>"; return; } }
   const v = $("video"); v.srcObject = stream; await v.play().catch(()=>{});
   running = true; loop();
+  const n = leftCount();
+  say(DATA.at ? (n ? `移送品をスキャンしてください。残り${n}件です` : "移送品をスキャンしてください") : "先に設定で、シートから読み込んでください");
 }
 function stopCam(){
   running = false;
@@ -631,6 +657,10 @@ $("manualForm").onsubmit = e => { e.preventDefault(); const v = $("manualIn").va
 $("ocrPhoto").onchange = e => { const f = e.target.files[0]; e.target.value = ""; if (f) ocrPhoto(f); };
 $("photoOnly").onchange = e => { const f = [...e.target.files]; e.target.value = ""; if (!f.length) return; const c = openCardFor("") || newCard(""); addPhotos(c, f); status("var(--idle)", "写真を「担当者不明」の案内に入れました", "担当者番号を入れると、その人あての案内になります"); };
 $("zoom").onclick = ()=> $("zoom").hidden = true;
+$("voiceOn").checked = VOICE;
+$("voiceOn").onchange = e => { VOICE = e.target.checked; save("iso.voice", VOICE); if (VOICE) say("音声案内をオンにしました"); };
+$("voiceTest").onclick = () => { const v = VOICE; VOICE = true; say("移送品をスキャンしてください"); VOICE = v; };
+try{ speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices(); }catch(e){}
 $("saveSet").onclick = ()=>{ readSet(); renderBadge(); setMsg(SET.url ? "保存しました" : "URLが空です", SET.url ? "ok" : "ng"); };
 $("loadBtn").onclick = ()=> loadData(false);
 $("savePeople").onclick = ()=>{ PEOPLE_TXT = $("people").value; save("iso.people", PEOPLE_TXT); PEOPLE = people(); render(); setMsg(`担当者表を保存しました（${PEOPLE.size}人）`, "ok"); };
