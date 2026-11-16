@@ -240,7 +240,11 @@ function handle(code, fromCam){
   lastCode = code; lastAt = now;
   const it = findItem(code);
   const key = it ? norm(it.code) : norm(code);
-  const already = [...CARDS.values()].find(c => !c.sent && c.items.some(x => norm(x.code) === key));
+  // 同じ品物か：番号が同じ、または後ろの01・011を除いたマシンNoが同じ
+  const same = x => { const a = it ? it.code : code; return norm(x.code) === norm(a) || (mbase(a).length === 8 && mbase(x.code) === mbase(a)); };
+  // 前に「担当者不明」に入った番号が、新しいデータで担当者が分かるようになったら、その人の案内へ移す
+  if (it && it.tan && [...CARDS.values()].some(c => !c.sent && !c.tan && c.items.some(same))){ resolveUnknown(); render(); }
+  const already = [...CARDS.values()].find(c => !c.sent && c.items.some(same));
   if (already){ beep("dup"); vib(60); status("var(--warn)", "もう入っています", `${it ? it.code : code}　${whoLine(already.tan)}`); return; }
   if (!it){
     beep("ng"); vib([200,80,200]);
@@ -402,6 +406,26 @@ function renderList(){
   }).join("") || '<li class="note">移送の品物はありません</li>';
 }
 
+/* ---- 「担当者不明」の案内を、今のデータで調べ直して担当者ごとの案内へ移す ---- */
+function resolveUnknown(){
+  let moved = 0;
+  [...CARDS.values()].filter(c => !c.sent && !c.tan).forEach(c => {
+    let last = null;
+    c.items = c.items.filter(x => {
+      const it = findItem(x.code);
+      if (!it || !it.tan) return true;
+      const t = openCardFor(it.tan) || newCard(it.tan);
+      if (!t.items.some(y => mbase(y.code) === mbase(it.code))) t.items.push(it);
+      dbPut(t); last = t; moved++; return false;
+    });
+    if (!c.items.length && last){                       // 中身が全部移ったら、写真とメモも一緒に移して空の案内を消す
+      last.photos.push(...c.photos); if (c.memo) last.memo = [last.memo, c.memo].filter(Boolean).join("　");
+      dbPut(last); CARDS.delete(c.id); dbDel(c.id);
+    } else dbPut(c);
+  });
+  return moved;
+}
+
 /* ---- データの読み込み（シート照合ブザー_データ中継） ---- */
 async function loadData(quiet){
   readSet();
@@ -415,7 +439,8 @@ async function loadData(quiet){
     DATA = {at: j.at || new Date().toLocaleString("ja-JP"), shukka: j.shukka || [],
       rows: (j.rows || []).map(r=>{ const o = {}; keep.forEach(k=>{ if (r[k] != null && r[k] !== "") o[k] = r[k]; }); return o; })};
     save("iso.data", DATA);
-    if (!quiet) setMsg(`読み込みました（移送 ${(DATA.shukka).filter(isIso).length}件）`, "ok");
+    const mv = resolveUnknown();
+    if (!quiet) setMsg(`読み込みました（移送 ${(DATA.shukka).filter(isIso).length}件）` + (mv ? `　「担当者不明」から ${mv}件を担当者の案内へ移しました` : ""), "ok");
   }catch(e){ if (!quiet) setMsg("読み込めませんでした：" + (e.message||e), "ng"); else showMsg("最新のデータを読み込めませんでした（前回のデータで動きます）", "ng"); }
   $("loadBtn").disabled = false; $("loadBtn").textContent = "シートから読み込む";
   renderData(); render();
