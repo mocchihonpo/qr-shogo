@@ -78,10 +78,11 @@ body{box-shadow:inset 0 6px 0 var(--accent)}
 h1{color:var(--accent)}
 .top .home{flex:0 0 auto;display:flex;align-items:center;justify-content:center;gap:4px;min-height:36px;padding:0 10px;border-radius:999px;background:rgba(255,255,255,.12);border:1.5px solid rgba(255,255,255,.25);color:inherit;text-decoration:none;font-weight:700;font-size:13px;white-space:nowrap}
 .top .home:focus-visible{outline:3px solid #f2c94c;outline-offset:2px}
+.top .reload{flex:0 0 auto;min-height:36px;width:40px;padding:0;border-radius:999px;background:rgba(255,255,255,.12);border:1.5px solid rgba(255,255,255,.25);color:inherit;font-size:16px;cursor:pointer}
 </style>
 </head>
 <body>
-<div class="top"><a class="home" href="../" aria-label="倉庫アプリ（入口）へ戻る">🏠 入口</a><h1>入荷品カメラ</h1><span class="badge" id="badge">準備中</span></div>
+<div class="top"><a class="home" href="../" aria-label="倉庫アプリ（入口）へ戻る">🏠 入口</a><button class="reload" type="button" onclick="location.reload()" aria-label="最新にする（リロード）">🔄</button><h1>入荷品カメラ</h1><span class="badge" id="badge">準備中</span></div>
 <main>
   <section class="view" id="v-shot">
     <label class="shot">📷 撮影する<small>撮ったら「納入品」フォルダへ自動で送ります</small>

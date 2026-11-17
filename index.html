@@ -39,7 +39,7 @@ a.app.going{outline:3px solid var(--c);outline-offset:2px}
 </style>
 </head>
 <body>
-<div class="head"><h1>倉庫アプリ</h1><button id="voice" class="vbtn" aria-pressed="true">🔊 声の案内 ON</button></div>
+<div class="head"><h1>倉庫アプリ</h1><button class="vbtn" type="button" onclick="location.reload()" aria-label="最新にする（リロード）">🔄</button><button id="voice" class="vbtn" aria-pressed="true">🔊 声の案内 ON</button></div>
 <a class="todo" id="todo" href="yotei/" hidden><div class="tt"><b id="todoHead"></b><span id="todoList"></span></div><button id="todoSay" type="button" aria-label="今日のやることを聞く">🔊</button></a>
 <div class="apps">
   <a class="app" style="--c:#ff8a65" href="yotei/" data-say="やること・納期です。今日のやることと納期を確かめます"><span class="no">1</span><span class="ic">⏰</span><div><b>やること・納期</b><span>朝いちばんに。今日のやることと納期を、声と音で知らせる</span></div></a>
