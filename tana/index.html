@@ -1,0 +1,473 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1d2140">
+<title>担当棚カメラ</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/zxing-wasm@2.2.4/dist/iife/reader/index.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<style>
+/* スマホ用：担当者の棚にある品物（いずれ出ていく預かり品）を、写真（AI）かバーコードで読んで「棚在庫」シートに記録する */
+:root{
+  --bg:#1d2140; --panel:#272c55; --panel2:#30366a; --fg:#eef0f8; --muted:#c3c7e6; --line:#434a8a;
+  --accent:#f2c94c; --accent-fg:#2a1f00; --ok:#2f6f4b; --warn:#c77700; --ng:#e5392f; --idle:#3a3f66; --out:#8a3b6a;
+  --f-ui:"BIZ UDPGothic","Hiragino Sans","Noto Sans JP",system-ui,sans-serif;
+  --f-code:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:var(--f-ui);font-size:15px;line-height:1.5}
+body{display:flex;flex-direction:column;overflow:hidden;padding-top:env(safe-area-inset-top,0px);box-shadow:inset 0 6px 0 var(--accent)}
+body.outmode{box-shadow:inset 0 6px 0 var(--out)}
+button,input,select{font:inherit;color:var(--fg)}
+button{font-weight:700;background:var(--panel);border:1.5px solid var(--line);border-radius:10px;padding:8px 12px;cursor:pointer;min-height:42px}
+button:focus-visible,input:focus-visible,label.pick:focus-within{outline:3px solid var(--accent);outline-offset:2px}
+button:disabled{opacity:.5}
+input,select{background:var(--panel2);border:1.5px solid var(--line);border-radius:10px;padding:8px 10px;min-height:42px;width:100%}
+.top{display:flex;align-items:center;gap:8px;padding:8px max(12px,env(safe-area-inset-right,0px)) 6px max(12px,env(safe-area-inset-left,0px))}
+.top h1{font-size:16px;margin:0;flex:1;color:var(--accent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.badge{font:700 12px var(--f-ui);padding:4px 10px;border-radius:999px;background:var(--idle);white-space:nowrap}
+.badge.ok{background:var(--ok)}.badge.ng{background:var(--ng)}.badge.wait{background:var(--warn)}
+main{flex:1;min-height:0;overflow-y:auto;padding:0 max(12px,env(safe-area-inset-right,0px)) 12px max(12px,env(safe-area-inset-left,0px))}
+.view{display:flex;flex-direction:column;gap:10px}
+[hidden]{display:none!important}
+/* どの棚か */
+.where{display:flex;gap:8px;align-items:stretch}
+.where .tan{flex:0 0 8.5em;font:700 22px var(--f-code);text-align:center;letter-spacing:.04em}
+.where .nm{flex:1;min-width:0;font-size:17px}
+.chips{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px}
+.chips button{flex:0 0 auto;min-height:36px;padding:2px 10px;font-size:13px;white-space:nowrap}
+.chips button.on{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+.dan{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
+.dan button{min-height:44px;font-size:15px;padding:0}
+.dan button.on{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+.mode{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.mode button.on.in{background:var(--ok);border-color:var(--ok)}
+.mode button.on.out{background:var(--out);border-color:var(--out)}
+/* カメラ（大きめ） */
+.cam{position:relative;height:min(52vh,460px);min-height:260px;border-radius:14px;overflow:hidden;background:#000;flex:0 0 auto}
+.cam video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.cam .seen{position:absolute;left:8px;right:8px;top:8px;padding:4px 10px;border-radius:8px;background:rgba(0,0,0,.7);color:#fff;font:700 13px var(--f-code);text-align:center;word-break:break-all}
+.cam .where2{position:absolute;left:8px;bottom:8px;padding:3px 10px;border-radius:8px;background:rgba(0,0,0,.65);color:var(--accent);font:700 14px var(--f-ui)}
+.cam .tap{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;background:rgba(0,0,0,.72);color:#fff;border:0;border-radius:0;font-size:19px;width:100%}
+.cam .tap small{font-size:13px;font-weight:400;opacity:.85;padding:0 16px}
+.big{min-height:56px;font-size:17px;background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+.row{display:flex;gap:8px}.row>*{flex:1}
+label.pick{display:flex;align-items:center;justify-content:center;gap:6px;min-height:42px;border-radius:10px;border:1.5px solid var(--line);background:var(--panel);font-weight:700;cursor:pointer;position:relative}
+label.pick input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.status{border-radius:12px;padding:8px 12px;background:var(--idle);color:#fff;text-align:center;min-height:52px;display:flex;flex-direction:column;justify-content:center}
+.status b{font-size:17px;line-height:1.3}
+.status span{font-size:13px;opacity:.92;word-break:break-all}
+form.manual{display:flex;gap:8px}
+form.manual input{flex:1;min-width:0;font-family:var(--f-code)}
+form.manual button{flex:0 0 auto}
+h2{font-size:14px;margin:6px 0 0;color:var(--muted)}
+.its{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.its li{display:flex;gap:8px;align-items:center;background:var(--panel2);border-radius:8px;padding:6px 8px;font-size:13px}
+.its li .m{font:700 15px var(--f-code)}
+.its li .s{color:var(--muted);font-size:12px}
+.its li > span{flex:1;min-width:0}
+.its li button{min-height:34px;padding:0 10px;font-size:12px;flex:0 0 auto}
+.its li.warn{outline:2px solid var(--warn)}
+.tag{font-size:11px;font-weight:700;border-radius:999px;padding:1px 8px;background:var(--idle);margin-left:4px}
+.tag.ph{background:#4b4f8a}.tag.bc{background:#3d5f74}
+.save{background:var(--ok);border-color:var(--ok);color:#fff;min-height:52px;font-size:16px}
+body.outmode .save{background:var(--out);border-color:var(--out)}
+.note{font-size:13px;color:var(--muted);margin:0}
+.msg{border-radius:10px;padding:8px 12px;background:var(--panel);font-size:13px}
+.msg.ng{background:#4a1d1a}.msg.ok{background:#1d3a2a}
+.empty{color:var(--muted);text-align:center;padding:16px 8px;font-size:14px}
+.lbl{font-size:12px;color:var(--muted);margin:2px 0 -6px}
+.chk{display:flex;align-items:center;gap:8px;font-size:14px}
+.chk input{width:22px;height:22px;min-height:0}
+nav{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding:6px max(12px,env(safe-area-inset-right,0px)) max(8px,env(safe-area-inset-bottom,0px)) max(12px,env(safe-area-inset-left,0px));background:var(--panel);border-top:1.5px solid var(--line)}
+nav button{min-height:46px;background:transparent;border-color:transparent}
+nav button.on{background:var(--accent);color:var(--accent-fg)}
+#printArea{display:none}
+@media print{
+  body{display:block;background:#fff;color:#000;box-shadow:none;overflow:visible}
+  .top,main,nav{display:none!important}
+  #printArea{display:block}
+  .shelf{width:90mm;border:1px dashed #999;padding:6mm;text-align:center;font-family:var(--f-ui);page-break-inside:avoid;margin:0 auto 8mm}
+  .shelf svg{width:55mm;height:55mm}
+  .shelf .n{font:700 34px var(--f-code)}
+  .shelf .nm{font-size:22px}
+}
+</style>
+</head>
+<body>
+<div class="top"><h1>担当棚カメラ</h1><span id="badge" class="badge">未設定</span></div>
+<main>
+<!-- ============ 読む ============ -->
+<section id="v-scan" class="view">
+  <div class="where">
+    <input id="tan" class="tan" inputmode="numeric" placeholder="担当番号" aria-label="担当者番号" autocomplete="off">
+    <input id="nm" class="nm" placeholder="名前（例 平野）" aria-label="担当者名" autocomplete="off">
+  </div>
+  <div id="tanChips" class="chips"></div>
+  <div class="dan" id="dan" role="group" aria-label="段"></div>
+  <div class="mode" role="group" aria-label="入れる・出す">
+    <button id="mIn" class="in on">📥 棚に入れる</button>
+    <button id="mOut" class="out">📤 出ていった</button>
+  </div>
+  <div class="cam" id="cam">
+    <video id="video" playsinline muted></video>
+    <div class="seen" id="seen" hidden></div>
+    <div class="where2" id="where2"></div>
+    <button class="tap" id="tapStart">📷 タップでカメラ開始<small>棚の担当QRを映すと担当者が入ります。品物のバーコード・QRは映すだけで読みます</small></button>
+  </div>
+  <button id="aiBtn" class="big">📸 写真を撮ってAIで全部読む</button>
+  <div class="row">
+    <label class="pick">🖼 携帯のカメラで撮る<input id="aiFile" type="file" accept="image/*" capture="environment"></label>
+  </div>
+  <div class="status" id="status"><b>担当番号と段を選んでください</b><span>写真なら棚の品物をまとめて読めます</span></div>
+  <form class="manual" id="manual"><input id="manualIn" placeholder="マシンNoを手で入れる（例 KKE-B5729）" autocomplete="off" autocapitalize="characters"><button>追加</button></form>
+  <h2 id="pendH">これから登録（0件）</h2>
+  <ul class="its" id="pend"></ul>
+  <button id="saveBtn" class="save" disabled>シートに登録する</button>
+  <p class="note" id="diag"></p>
+</section>
+
+<!-- ============ 棚の中身 ============ -->
+<section id="v-list" class="view" hidden>
+  <div class="row"><button id="listReload">🔄 シートから読み込む</button><select id="listTan" aria-label="担当者"></select></div>
+  <div id="listBox"></div>
+</section>
+
+<!-- ============ 設定 ============ -->
+<section id="v-set" class="view" hidden>
+  <p class="lbl">中継スクリプト「棚在庫_記録」のURL</p>
+  <input id="gasUrl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="url">
+  <p class="lbl">合言葉</p>
+  <input id="gasKey" autocomplete="off" autocapitalize="off">
+  <div class="row"><button id="setSave">保存</button><button id="setTest">つながるか試す</button></div>
+  <div id="setMsg" class="msg" hidden></div>
+  <label class="chk"><input type="checkbox" id="keepPhoto"> 撮った写真もドライブ（棚在庫_写真）に残す</label>
+  <label class="chk"><input type="checkbox" id="voiceOn"> 声で案内する</label>
+  <h2>棚に貼る担当QR</h2>
+  <p class="note">いま選んでいる担当者のQRを印刷します。棚に貼っておくと、映すだけで担当者が切り替わります。</p>
+  <button id="printShelf">🖨 担当QRを印刷</button>
+  <p class="note" id="bookLink"></p>
+</section>
+</main>
+<nav>
+  <button data-t="scan" class="on">読む</button>
+  <button data-t="list">棚の中身</button>
+  <button data-t="set">設定</button>
+</nav>
+<div id="printArea"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s??"").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const load = (k, d) => { try{ const v = JSON.parse(localStorage.getItem(k)); return v ?? d; }catch(e){ return d; } };
+const save = (k, v) => { try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} };
+
+let SET = load("tana.set", {url:"", key:"mocchi2026", keepPhoto:false, voice:true});
+let TANS = load("tana.tans", {});         // {番号: 名前}
+let CUR = load("tana.cur", {tan:"", dan:"1", mode:"in"});
+let PEND = load("tana.pend", []);         // [{mno, how, kata, cust, day, ltan, photo}]
+const DANS = ["1","2","3","4","5","床"];
+
+/* ---------- 音・声 ---------- */
+let ac = null;
+function audio(){ if(!ac){ const C = window.AudioContext||window.webkitAudioContext; if(C) ac = new C(); } if(ac && ac.state==="suspended") ac.resume(); return ac; }
+function tone(f, st, d, type="sine", vol=.3){ const a = audio(); if(!a) return; const o = a.createOscillator(), g = a.createGain(); o.type = type; o.frequency.value = f; g.gain.value = vol; o.connect(g); g.connect(a.destination); const t = a.currentTime+st; o.start(t); g.gain.setValueAtTime(vol,t); g.gain.exponentialRampToValueAtTime(.001,t+d); o.stop(t+d+.02); }
+const sOK = () => { tone(1320,0,.09); tone(1760,.1,.12); };
+const sNG = () => { tone(300,0,.25,"square",.2); };
+const vib = p => { try{ navigator.vibrate && navigator.vibrate(p); }catch(e){} };
+function say(text){
+  if (!SET.voice || !("speechSynthesis" in window)) return;
+  try{ speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.lang = "ja-JP"; u.rate = 1.1;
+    const v = speechSynthesis.getVoices().find(x => /^ja/i.test(x.lang)); if (v) u.voice = v; speechSynthesis.speak(u); }catch(e){}
+}
+function status(bg, big, sub){ const s = $("status"); s.style.background = bg; s.innerHTML = `<b>${esc(big)}</b>${sub?`<span>${esc(sub)}</span>`:""}`; }
+
+/* ---------- マシンNo ---------- */
+const mbase = s => String(s||"").toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,8);
+function tidy(s){
+  const t = String(s||"").normalize("NFKC").toUpperCase().replace(/[‐－ー—–\s]+/g,"-");
+  // マシンNo：英数字3文字-［英字＋英数字＋数字3桁］（KKE-B5729、K52-MB533-01）。形名 RTC-05FA3 などは除く
+  const m = t.match(/(?:^|[^A-Z0-9])([A-Z0-9]{3})-?([A-Z][A-Z0-9]\d{3})(?:-?(\d{2,3}))?(?![A-Z0-9])/) || t.match(/([A-Z0-9]{3})-?([A-Z][A-Z0-9]\d{3})(?:-?(\d{2,3}))?/);
+  return m ? m[1]+"-"+m[2]+(m[3]?"-"+m[3]:"") : "";
+}
+const looksTan = s => /^\d{3,6}$/.test(String(s||"").normalize("NFKC").trim()) || /^TANA[:：]?\d{3,6}/i.test(String(s||"").trim());
+
+/* ---------- どの棚か ---------- */
+function whereText(){ return CUR.tan ? `${CUR.tan}${TANS[CUR.tan]?" "+TANS[CUR.tan]:""}　${CUR.dan==="床"?"床置き":CUR.dan+"段目"}` : "担当未選択"; }
+function renderWhere(){
+  $("tan").value = CUR.tan; $("nm").value = TANS[CUR.tan] || "";
+  $("dan").innerHTML = DANS.map(d=>`<button data-d="${d}" class="${CUR.dan===d?"on":""}">${d==="床"?"床":d+"段"}</button>`).join("");
+  const keys = Object.keys(TANS).sort();
+  $("tanChips").innerHTML = keys.map(k=>`<button data-k="${esc(k)}" class="${k===CUR.tan?"on":""}">${esc(k)} ${esc(TANS[k]||"")}</button>`).join("");
+  $("mIn").classList.toggle("on", CUR.mode==="in"); $("mOut").classList.toggle("on", CUR.mode==="out");
+  document.body.classList.toggle("outmode", CUR.mode==="out");
+  $("where2").textContent = (CUR.mode==="out" ? "📤 出ていった　" : "📥 ") + whereText();
+  save("tana.cur", CUR);
+}
+function setTan(t, speak){
+  t = String(t||"").normalize("NFKC").replace(/^TANA[:：]?/i,"").replace(/\D/g,"");
+  if (!t) return;
+  if (CUR.tan !== t){ CUR.tan = t; if (!(t in TANS)){ TANS[t] = ""; save("tana.tans", TANS); } }
+  renderWhere(); renderPend();
+  sOK(); vib(60);
+  status("var(--ok)", whereText(), "この棚の品物を読んでください");
+  if (speak) say(`${TANS[t]? TANS[t]+"さん" : t}の棚、${CUR.dan==="床"?"床置き":CUR.dan+"段目"}です`);
+}
+$("tan").addEventListener("change", ()=> setTan($("tan").value, false));
+$("nm").addEventListener("change", ()=>{ if (!CUR.tan) return; TANS[CUR.tan] = $("nm").value.trim(); save("tana.tans", TANS); renderWhere(); });
+$("tanChips").onclick = e => { const b = e.target.closest("button[data-k]"); if (b) setTan(b.dataset.k, true); };
+$("dan").onclick = e => { const b = e.target.closest("button[data-d]"); if (!b) return; CUR.dan = b.dataset.d; renderWhere(); say(CUR.dan==="床"?"床置き":CUR.dan+"段目"); };
+$("mIn").onclick = () => { CUR.mode = "in"; renderWhere(); renderPend(); say("棚に入れる品物を読みます"); };
+$("mOut").onclick = () => { CUR.mode = "out"; renderWhere(); renderPend(); say("出ていった品物を読みます"); };
+
+/* ---------- これから登録 ---------- */
+function addItems(list, how, photo){
+  let n = 0, dup = 0;
+  for (const x of list){
+    const m = tidy(x.mno || x); if (!m) continue;
+    if (PEND.some(p=>mbase(p.mno)===mbase(m))){ dup++; continue; }
+    PEND.push({mno:m, how, photo:photo||"", kata:x.kata||"", cust:x.cust||"", day:x.day||"", ltan:x.ltan||""}); n++;
+  }
+  save("tana.pend", PEND); renderPend();
+  return {n, dup};
+}
+function renderPend(){
+  const verb = CUR.mode==="out" ? "「出た」にする" : "登録";
+  $("pendH").textContent = `これから${verb}（${PEND.length}件）`;
+  $("pend").innerHTML = PEND.map((p,i)=>{
+    const other = false;
+    const sub = [p.kata, p.cust, p.day && ("出荷"+String(p.day).slice(4,6)+"/"+String(p.day).slice(6,8)), p.ltan && ("台帳の担当 "+p.ltan)].filter(Boolean).join("　");
+    return `<li class="${other?"warn":""}"><span><span class="m">${esc(p.mno)}</span><span class="tag ${p.how==="写真"?"ph":"bc"}">${esc(p.how)}</span>${sub?`<div class="s">${esc(sub)}</div>`:""}${other?`<div class="s" style="color:var(--accent)">⚠ 台帳では別の担当者です</div>`:""}</span><button data-i="${i}" aria-label="${esc(p.mno)}を外す">✕</button></li>`;
+  }).join("") || `<li class="empty" style="justify-content:center">まだありません</li>`;
+  $("saveBtn").disabled = !PEND.length || (CUR.mode==="in" && !CUR.tan);
+  $("saveBtn").textContent = CUR.mode==="out" ? `📤 ${PEND.length}件を「出た」にする` : (CUR.tan ? `${whereText()} に ${PEND.length}件を登録` : "先に担当番号を入れてください");
+}
+$("pend").onclick = e => { const b = e.target.closest("button[data-i]"); if (!b) return; PEND.splice(+b.dataset.i,1); save("tana.pend", PEND); renderPend(); };
+
+/* ---------- 中継 ---------- */
+async function post(body){
+  if (!SET.url) throw new Error("設定でURLを入れてください");
+  const res = await fetch(SET.url, {method:"POST", redirect:"follow", body: JSON.stringify(Object.assign({key:SET.key||""}, body))});
+  const j = await res.json(); if (!j.ok) throw new Error(j.error||"失敗しました"); return j;
+}
+async function get(params){
+  if (!SET.url) throw new Error("設定でURLを入れてください");
+  const u = new URL(SET.url); u.searchParams.set("key", SET.key||""); for (const k in params) u.searchParams.set(k, params[k]);
+  const j = await (await fetch(u.toString(), {redirect:"follow"})).json(); if (!j.ok) throw new Error(j.error||"失敗しました"); return j;
+}
+// バーコードで読んだ品物に、形名・得意先を後から付ける
+let infoT = null;
+function fillInfo(){
+  clearTimeout(infoT);
+  infoT = setTimeout(async ()=>{
+    const need = PEND.filter(p=>!p.kata && !p.cust && !p.asked); if (!need.length || !SET.url) return;
+    need.forEach(p=>p.asked=1);
+    try{ const j = await post({action:"info", mnos: need.map(p=>p.mno)});
+      for (const x of j.items){ const p = PEND.find(q=>mbase(q.mno)===mbase(x.mno)); if (p) Object.assign(p, {kata:x.kata, cust:x.cust, day:x.day, ltan:x.ltan}); }
+      save("tana.pend", PEND); renderPend();
+    }catch(e){}
+  }, 800);
+}
+
+/* ---------- 写真をAIで読む ---------- */
+let aiBusy = false;
+async function aiRead(canvas){
+  if (aiBusy) return;
+  if (CUR.mode==="in" && !CUR.tan){ sNG(); status("var(--warn)","先に担当番号を入れてください","棚の担当QRを映すか、上の欄に番号を入れます"); return; }
+  aiBusy = true; $("aiBtn").disabled = true; $("aiBtn").textContent = "AIが読んでいます…";
+  tone(1800,0,.08,"square",.15);
+  status("var(--idle)","AIが写真を読んでいます…","10秒ほどかかります。そのまま待ってください");
+  try{
+    const data = canvas.toDataURL("image/jpeg", 0.85).split(",")[1];
+    const j = await post({action:"ocr", data, keepPhoto: !!SET.keepPhoto, tan: CUR.tan, dan: CUR.dan});
+    if (!j.items.length){ sNG(); vib([80,60,80]); status("var(--ng)","マシンNoが見つかりませんでした","ラベルが写るように近づいて、もう一度撮ってください"); say("マシン番号が見つかりませんでした"); return; }
+    const r = addItems(j.items, "写真", j.photo);
+    sOK(); vib(80);
+    status("var(--ok)", `${j.items.length}件読みました（新しく${r.n}件）`, j.items.map(x=>x.mno).join("、"));
+    say(`${j.items.length}件読みました`);
+  }catch(e){ sNG(); status("var(--ng)","読めませんでした", String(e.message||e)); }
+  finally{ aiBusy = false; $("aiBtn").disabled = false; $("aiBtn").textContent = "📸 写真を撮ってAIで全部読む"; }
+}
+function frameCanvas(maxSide){
+  const v = $("video"), W = v.videoWidth, H = v.videoHeight, k = Math.min(1, maxSide/Math.max(W,H));
+  const c = document.createElement("canvas"); c.width = Math.round(W*k); c.height = Math.round(H*k);
+  c.getContext("2d").drawImage(v,0,0,c.width,c.height); return c;
+}
+$("aiBtn").onclick = () => {
+  const v = $("video");
+  if (!running || !v.videoWidth){ $("aiFile").click(); return; }
+  aiRead(frameCanvas(1800));
+};
+$("aiFile").onchange = e => {
+  const f = e.target.files && e.target.files[0]; if (!f) return;
+  const img = new Image();
+  img.onload = () => { const k = Math.min(1, 1800/Math.max(img.width,img.height)); const c = document.createElement("canvas"); c.width = Math.round(img.width*k); c.height = Math.round(img.height*k); c.getContext("2d").drawImage(img,0,0,c.width,c.height); URL.revokeObjectURL(img.src); aiRead(c); };
+  img.src = URL.createObjectURL(f); e.target.value = "";
+};
+
+/* ---------- バーコード・QR ---------- */
+const FORMATS_BD = ["qr_code","code_128","code_39","ean_13","itf","codabar"];
+let detector = null;
+try{ if ("BarcodeDetector" in window) detector = new BarcodeDetector({formats:FORMATS_BD}); }catch(e){ try{ detector = new BarcodeDetector({formats:["qr_code"]}); }catch(e2){ detector = null; } }
+let zxOK = null;
+async function decodeAll(cv){
+  if (detector){ try{ const r = await detector.detect(cv); if (r && r.length) return r.map(x=>x.rawValue); }catch(e){} }
+  const W = cv.width, H = cv.height, img = cv.getContext("2d",{willReadFrequently:true}).getImageData(0,0,W,H);
+  if (window.ZXingWASM && zxOK !== false){
+    try{ const r = await ZXingWASM.readBarcodes(img, {formats:["QRCode","Code128","Code39","EAN-13","ITF","Codabar"], tryHarder:true, maxNumberOfSymbols:8});
+      zxOK = true; return (r||[]).filter(x=>x.isValid && x.text).map(x=>x.text); }catch(e){ zxOK = false; }
+  }
+  if (window.jsQR){ const r = jsQR(img.data, W, H, {inversionAttempts:"dontInvert"}); if (r) return [r.data]; }
+  return [];
+}
+let lastCode = "", lastAt = 0;
+function handleCode(raw, how){
+  const code = String(raw||"").normalize("NFKC").trim();
+  if (!code) return;
+  if (code === lastCode && Date.now()-lastAt < 2500) return;
+  lastCode = code; lastAt = Date.now();
+  if (looksTan(code)){ if (code.replace(/\D/g,"") !== CUR.tan) setTan(code, true); return; }
+  const m = tidy(code);
+  if (!m || !/[A-Z]/.test(m)){ if (how==="手入力"){ sNG(); status("var(--warn)","マシンNoの形ではありません", code+"（例 KKE-B5729）"); } return; }   // マシンNoでないバーコード（数字だけ等）は黙って飛ばす
+  if (CUR.mode==="in" && !CUR.tan){ sNG(); status("var(--warn)","先に担当番号を入れてください",""); return; }
+  const r = addItems([{mno:m}], how);
+  if (r.n){ sOK(); vib(50); status("var(--ok)", m, `${whereText()}　これから${CUR.mode==="out"?"「出た」":"登録"} ${PEND.length}件`); fillInfo(); }
+  else { tone(900,0,.08); status("var(--idle)", m, "もう読んであります"); }
+}
+$("manual").onsubmit = e => { e.preventDefault(); const v = $("manualIn").value; $("manualIn").value = ""; lastCode = ""; handleCode(v, "手入力"); };
+
+/* ---------- カメラ ---------- */
+let stream = null, running = false, tries = 0, tab = "scan";
+const work = document.createElement("canvas");
+function camWhy(e){
+  const n = (e&&e.name)||"";
+  if (n==="NotAllowedError") return "カメラが「拒否」になっています。ブラウザの設定でカメラを「許可」にして、もう一度タップ";
+  if (n==="NotReadableError"||n==="AbortError") return "他のアプリやタブがカメラを使っています。閉じてから、もう一度タップ";
+  if (!navigator.mediaDevices) return "このブラウザではカメラが使えません";
+  return "もう一度タップしてください（"+n+"）";
+}
+async function startCam(){
+  audio(); $("tapStart").hidden = true;
+  try{ stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1920},height:{ideal:1080}},audio:false}); }
+  catch(e){ try{ stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"},audio:false}); }
+    catch(e2){ $("tapStart").hidden = false; $("tapStart").innerHTML = "カメラを使えませんでした<small>"+camWhy(e2)+"</small>"; return; } }
+  const v = $("video"); v.srcObject = stream; await v.play().catch(()=>{});
+  running = true; loop();
+  if (CUR.tan) say(`${TANS[CUR.tan]?TANS[CUR.tan]+"さん":CUR.tan}の棚、${CUR.dan==="床"?"床置き":CUR.dan+"段目"}です。品物を読んでください`);
+  else say("棚の担当QRを映すか、担当番号を入れてください");
+}
+$("tapStart").onclick = startCam;
+async function loop(){
+  if (!running) return;
+  const v = $("video");
+  if (tab==="scan" && !aiBusy && v.readyState>=2 && v.videoWidth){
+    try{
+      const W = v.videoWidth, H = v.videoHeight, k = Math.min(1, 1280/Math.max(W,H));
+      work.width = Math.round(W*k); work.height = Math.round(H*k);
+      work.getContext("2d",{willReadFrequently:true}).drawImage(v,0,0,work.width,work.height);
+      const codes = await decodeAll(work);
+      tries++;
+      $("diag").textContent = `カメラ ${W}×${H}　解析 ${tries}回　${detector?"標準":zxOK?"ZXing":"jsQR"}`;
+      if (codes.length){ $("seen").hidden = false; $("seen").textContent = "読めています：" + codes.join(" / "); setTimeout(()=>$("seen").hidden=true, 1200); }
+      // 担当QRを先に、次にマシンNo
+      codes.sort((a,b)=> (looksTan(b)?1:0)-(looksTan(a)?1:0)).forEach(c=>handleCode(c, "バーコード"));
+    }catch(e){}
+  }
+  setTimeout(loop, 90);
+}
+
+/* ---------- 登録 ---------- */
+$("saveBtn").onclick = async () => {
+  if (!PEND.length) return;
+  const b = $("saveBtn"); b.disabled = true; const keep = b.textContent; b.textContent = "シートに書いています…";
+  try{
+    if (CUR.mode==="out"){
+      const j = await post({action:"out", mnos: PEND.map(p=>p.mno)});
+      const miss = PEND.length - j.n;
+      sOK(); status("var(--ok)", `${j.n}件を「出た」にしました`, miss ? `${miss}件は棚在庫にありませんでした` : "");
+      say(`${j.n}件を、出たにしました`);
+    } else {
+      const j = await post({action:"save", tan: CUR.tan, name: TANS[CUR.tan]||"", dan: CUR.dan, items: PEND.map(p=>({mno:p.mno, how:p.how, photo:p.photo}))});
+      sOK(); status("var(--ok)", `${whereText()} に登録しました`, `新しく ${j.added}件　置き場所を変えた ${j.moved}件　前と同じ ${j.same}件`);
+      say(`${j.added + j.moved + j.same}件、登録しました`);
+    }
+    PEND = []; save("tana.pend", PEND);
+  }catch(e){ sNG(); status("var(--ng)","登録できませんでした", String(e.message||e)); }
+  b.textContent = keep; renderPend();
+};
+
+/* ---------- 棚の中身 ---------- */
+let LIST = [];
+async function loadList(){
+  const box = $("listBox"); box.innerHTML = `<p class="empty">読み込んでいます…</p>`;
+  try{
+    const j = await get({action:"list"});
+    LIST = j.rows;
+    for (const t of j.tans){ if (!(t.tan in TANS) || (t.name && !TANS[t.tan])) TANS[t.tan] = t.name; }
+    save("tana.tans", TANS); renderWhere();
+    const tans = [...new Set(LIST.map(r=>r.tan))].sort();
+    const sel = $("listTan"), cur = sel.value || CUR.tan;
+    sel.innerHTML = `<option value="">全員（${LIST.length}件）</option>` + tans.map(t=>`<option value="${esc(t)}">${esc(t)} ${esc(TANS[t]||"")}（${LIST.filter(r=>r.tan===t).length}件）</option>`).join("");
+    sel.value = tans.includes(cur) ? cur : "";
+    renderList();
+  }catch(e){ box.innerHTML = `<p class="msg ng">${esc(e.message||e)}</p>`; }
+}
+function renderList(){
+  const t = $("listTan").value, rs = LIST.filter(r=>!t || r.tan===t);
+  if (!rs.length){ $("listBox").innerHTML = `<p class="empty">棚にある品物はありません</p>`; return; }
+  const groups = {};
+  rs.forEach(r=>{ const k = r.tan+"|"+r.dan; (groups[k] = groups[k]||[]).push(r); });
+  $("listBox").innerHTML = Object.keys(groups).sort().map(k=>{
+    const [tn, dn] = k.split("|");
+    return `<h2>${esc(tn)} ${esc(TANS[tn]||"")}　${dn==="床"?"床置き":esc(dn)+"段目"}（${groups[k].length}件）</h2><ul class="its">` +
+      groups[k].map(r=>`<li><span><span class="m">${esc(r.mno)}</span><div class="s">${esc([r.kata, r.cust, r.at && ("登録 "+r.at)].filter(Boolean).join("　"))}</div></span><button data-out="${esc(r.mno)}">出た</button></li>`).join("") + `</ul>`;
+  }).join("");
+}
+$("listReload").onclick = loadList;
+$("listTan").onchange = renderList;
+$("listBox").onclick = async e => {
+  const b = e.target.closest("button[data-out]"); if (!b) return;
+  b.disabled = true; b.textContent = "…";
+  try{ await post({action:"out", mnos:[b.dataset.out]}); LIST = LIST.filter(r=>r.mno!==b.dataset.out); renderList(); sOK(); }
+  catch(err){ b.disabled = false; b.textContent = "出た"; alert(err.message||err); }
+};
+
+/* ---------- 設定 ---------- */
+function renderBadge(){ const b = $("badge"); if (!SET.url){ b.textContent = "未設定"; b.className = "badge ng"; } else { b.textContent = "つながり設定済"; b.className = "badge ok"; } }
+function readSet(){ SET = Object.assign(SET, {url:$("gasUrl").value.trim(), key:$("gasKey").value.normalize("NFKC").trim(), keepPhoto:$("keepPhoto").checked, voice:$("voiceOn").checked}); save("tana.set", SET); renderBadge(); }
+function setMsg(t, cls){ const m = $("setMsg"); m.hidden = false; m.className = "msg " + (cls||""); m.textContent = t; }
+$("setSave").onclick = () => { readSet(); setMsg("保存しました", "ok"); };
+$("keepPhoto").onchange = readSet; $("voiceOn").onchange = readSet;
+$("setTest").onclick = async () => {
+  readSet(); setMsg("試しています…");
+  try{ const j = await get({}); setMsg("つながりました。担当者 " + j.tans.length + "人が登録されています", "ok");
+    $("bookLink").innerHTML = `記録先：<a href="${esc(j.book)}" target="_blank" rel="noopener" style="color:var(--accent)">棚在庫（スプレッドシート）</a>`;
+    for (const t of j.tans){ if (!(t.tan in TANS) || (t.name && !TANS[t.tan])) TANS[t.tan] = t.name; } save("tana.tans", TANS); renderWhere();
+  }catch(e){ setMsg("つながりません：" + (e.message||e), "ng"); }
+};
+$("printShelf").onclick = () => {
+  if (!CUR.tan){ setMsg("先に「読む」で担当番号を入れてください", "ng"); return; }
+  const q = qrcode(0, "M"); q.addData(CUR.tan); q.make();
+  $("printArea").innerHTML = `<div class="shelf">${q.createSvgTag({cellSize:6, margin:2, scalable:true})}<div class="n">${esc(CUR.tan)}</div><div class="nm">${esc(TANS[CUR.tan]||"")}</div></div>`;
+  window.print();
+};
+
+/* ---------- タブ ---------- */
+document.querySelector("nav").onclick = e => {
+  const b = e.target.closest("button[data-t]"); if (!b) return;
+  tab = b.dataset.t;
+  document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on", x===b));
+  ["scan","list","set"].forEach(t=> $("v-"+t).hidden = t!==tab);
+  if (tab==="list"){ if (!$("listTan").value && CUR.tan) $("listTan").value = CUR.tan; if (!LIST.length && SET.url) loadList(); }
+};
+
+$("gasUrl").value = SET.url; $("gasKey").value = SET.key; $("keepPhoto").checked = !!SET.keepPhoto; $("voiceOn").checked = SET.voice !== false;
+renderBadge(); renderWhere(); renderPend();
+if (CUR.tan) status("var(--idle)", whereText(), "カメラをタップして始めます");
+</script>
+</body>
+</html>
