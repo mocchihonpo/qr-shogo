@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1d2140">
+<title>配達品あんない</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/zxing-wasm@2.2.4/dist/iife/reader/index.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<style>
+/* スマホ用：出荷リストの「配達」の品物を、配送担当者（木下・茶木・菱越・新村）ごとに照合する。移送品あんないの配達版 */
+:root{
+  --bg:#1d2140; --panel:#272c55; --panel2:#30366a; --fg:#eef0f8; --muted:#c3c7e6; --line:#434a8a;
+  --accent:#4fc3f7; --accent-fg:#06222e; --ok:#2f6f4b; --warn:#c77700; --ng:#e5392f; --idle:#3a3f66;
+  --f-ui:"BIZ UDPGothic","Hiragino Sans","Noto Sans JP",system-ui,sans-serif;
+  --f-code:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:var(--f-ui);font-size:15px;line-height:1.5}
+body{display:flex;flex-direction:column;overflow:hidden;padding-top:env(safe-area-inset-top,0px);box-shadow:inset 0 6px 0 var(--accent)}
+button,input,select{font:inherit;color:var(--fg)}
+button{font-weight:700;background:var(--panel);border:1.5px solid var(--line);border-radius:10px;padding:8px 12px;cursor:pointer;min-height:42px}
+button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+input,select{background:var(--panel2);border:1.5px solid var(--line);border-radius:10px;padding:8px 10px;min-height:42px;width:100%}
+[hidden]{display:none!important}
+.top{display:flex;align-items:center;gap:8px;padding:8px max(12px,env(safe-area-inset-right,0px)) 6px max(12px,env(safe-area-inset-left,0px))}
+.top h1{font-size:16px;margin:0;flex:1;color:var(--accent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.top .home{flex:0 0 auto;display:flex;align-items:center;gap:4px;min-height:36px;padding:0 10px;border-radius:999px;background:rgba(255,255,255,.12);border:1.5px solid rgba(255,255,255,.25);color:inherit;text-decoration:none;font-weight:700;font-size:13px;white-space:nowrap}
+.top .reload{flex:0 0 auto;min-height:36px;width:40px;padding:0;border-radius:999px;background:rgba(255,255,255,.12);border:1.5px solid rgba(255,255,255,.25);font-size:16px}
+.badge{font:700 12px var(--f-ui);padding:4px 10px;border-radius:999px;background:var(--idle);white-space:nowrap}
+.badge.ok{background:var(--ok)}.badge.ng{background:var(--ng)}
+main{flex:1;min-height:0;overflow-y:auto;padding:0 max(12px,env(safe-area-inset-right,0px)) 12px max(12px,env(safe-area-inset-left,0px))}
+.view{display:flex;flex-direction:column;gap:10px}
+.chips{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px}
+.chips button{flex:0 0 auto;min-height:38px;padding:2px 12px;font-size:13px;white-space:nowrap}
+.chips button.on{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+.cam{position:relative;height:min(46vh,420px);min-height:240px;border-radius:14px;overflow:hidden;background:#000;flex:0 0 auto}
+.cam video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.cam .seen{position:absolute;left:8px;right:8px;top:8px;padding:4px 10px;border-radius:8px;background:rgba(0,0,0,.7);color:#fff;font:700 13px var(--f-code);text-align:center;word-break:break-all}
+.cam .tap{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;background:rgba(0,0,0,.72);color:#fff;border:0;border-radius:0;font-size:19px;width:100%}
+.cam .tap small{font-size:13px;font-weight:400;opacity:.85;padding:0 16px}
+/* 読んだ結果：配送担当者を大きく */
+.result{border-radius:14px;padding:10px 14px;background:var(--idle);color:#fff;text-align:center;min-height:96px;display:flex;flex-direction:column;justify-content:center;gap:2px}
+.result .who{font-size:30px;font-weight:700;line-height:1.2}
+.result .when{font-size:17px;font-weight:700}
+.result .sub{font-size:13px;opacity:.92;word-break:break-all}
+form.manual{display:flex;gap:8px}
+form.manual input{flex:1;min-width:0;font-family:var(--f-code)}
+form.manual button{flex:0 0 auto}
+.sum{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.sum div{background:var(--panel);border-radius:10px;padding:6px;text-align:center;font-size:12px;color:var(--muted)}
+.sum b{display:block;font:700 22px var(--f-code);color:var(--fg)}
+h2{font-size:15px;margin:8px 0 0;display:flex;align-items:center;gap:8px}
+h2 .dot{width:14px;height:14px;border-radius:50%;flex:0 0 auto}
+h2 .n{font-size:13px;color:var(--muted);font-weight:400;flex:1}
+h2 button{min-height:34px;padding:0 10px;font-size:12px}
+.its{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.its li{display:flex;gap:8px;align-items:center;background:var(--panel);border-radius:10px;padding:6px 8px;font-size:13px;border-left:6px solid var(--c,var(--line))}
+.its li.done{opacity:.55}
+.its .ck{flex:0 0 26px;height:26px;border-radius:6px;border:2px solid var(--line);display:flex;align-items:center;justify-content:center;font-weight:700}
+.its li.done .ck{background:var(--ok);border-color:var(--ok)}
+.its .m{font:700 14px var(--f-code)}
+.its .s{color:var(--muted);font-size:12px}
+.its li > span:nth-child(2){flex:1;min-width:0}
+.note{font-size:13px;color:var(--muted);margin:0}
+.msg{border-radius:10px;padding:8px 12px;background:var(--panel);font-size:13px}
+.msg.ok{background:#1d3a2a}.msg.ng{background:#4a1d1a}
+.lbl{font-size:12px;color:var(--muted);margin:2px 0 -6px}
+.row{display:flex;gap:8px}.row>*{flex:1}
+.chk{display:flex;align-items:center;gap:8px;font-size:14px}
+.chk input{width:22px;height:22px;min-height:0}
+nav{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding:6px max(12px,env(safe-area-inset-right,0px)) max(8px,env(safe-area-inset-bottom,0px)) max(12px,env(safe-area-inset-left,0px));background:var(--panel);border-top:1.5px solid var(--line)}
+nav button{min-height:46px;background:transparent;border-color:transparent}
+nav button.on{background:var(--accent);color:var(--accent-fg)}
+</style>
+</head>
+<body>
+<div class="top"><a class="home" href="../" aria-label="倉庫アプリ（入口）へ戻る">🏠 入口</a><button class="reload" type="button" onclick="location.reload()" aria-label="最新にする（リロード）">🔄</button><h1>配達品あんない</h1><span id="badge" class="badge">準備中</span></div>
+<main>
+<!-- ============ 読む ============ -->
+<section id="v-scan" class="view">
+  <div class="chips" id="dayChips" role="group" aria-label="配達日"></div>
+  <div class="cam">
+    <video id="video" playsinline muted></video>
+    <div class="seen" id="seen" hidden></div>
+    <button class="tap" id="tapStart">📷 タップして読み取り開始<small>箱のマシンNoのQR・バーコードを映すと、どの配送担当者の品物かを声で言います</small></button>
+  </div>
+  <div class="result" id="result"><div class="when">読み取りを待っています</div><div class="sub">配達の品物を読むと、ここに配送担当者が大きく出ます</div></div>
+  <form class="manual" id="manual"><input id="manualIn" placeholder="マシンNoを手で入れる（例 KK5-A1965）" autocomplete="off" autocapitalize="characters"><button>読む</button></form>
+  <div class="sum"><div>配達<b id="nAll">0</b></div><div>そろった<b id="nGot">0</b></div><div>まだ<b id="nLeft">0</b></div></div>
+  <p class="note" id="diag"></p>
+</section>
+
+<!-- ============ 一覧 ============ -->
+<section id="v-list" class="view" hidden>
+  <div class="chips" id="dayChips2" role="group" aria-label="配達日"></div>
+  <div class="chips" id="drvChips" role="group" aria-label="配送担当者"></div>
+  <p class="note" id="listInfo"></p>
+  <div id="listBox"></div>
+</section>
+
+<!-- ============ 設定 ============ -->
+<section id="v-set" class="view" hidden>
+  <p class="note" id="dataInfo">まだ読み込んでいません</p>
+  <button id="loadBtn" style="background:var(--accent);color:var(--accent-fg);border-color:var(--accent)">シートから読み込む</button>
+  <p class="lbl">中継のURL（移送品あんないと同じ「シート照合ブザー_データ中継」）</p>
+  <input id="gasUrl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="url">
+  <p class="lbl">合言葉</p>
+  <input id="gasKey" autocomplete="off" autocapitalize="off">
+  <div class="row"><button id="saveSet">保存</button></div>
+  <div id="setMsg" class="msg" hidden></div>
+  <label class="chk"><input type="checkbox" id="voiceOn"> 声で案内する</label>
+  <button id="clearGot">そろったチェックを全部消す</button>
+  <p class="note">移送品あんないに設定が入っていれば、同じURLを自動で使います。チェックはこの携帯の中にだけ残り、配達日が過ぎて3日たつと自動で消えます。</p>
+</section>
+</main>
+<nav>
+  <button data-t="scan" class="on">読む</button>
+  <button data-t="list">一覧</button>
+  <button data-t="set">設定</button>
+</nav>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s??"").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const load = (k, d) => { try{ const v = JSON.parse(localStorage.getItem(k)); return v ?? d; }catch(e){ return d; } };
+const save = (k, v) => { try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} };
+const p2 = n => String(n).padStart(2,"0");
+const WD = ["日","月","火","水","木","金","土"];
+
+// 設定は移送品あんないと同じものを使う（なければ自分の分）
+let SET = load("haiso.set", null) || load("iso.set", null) || {url:"", key:"mocchi2026"};
+let DATA = load("haiso.data", null) || load("iso.data", {at:"", shukka:[]});
+let GOT = load("haiso.got", {});            // {mbase: {d:"YYYYMMDD", at}}
+let DAY = load("haiso.day", "");            // 選んでいる配達日 YYYYMMDD（""＝いちばん近い日）
+let DRV = load("haiso.drv", "");            // 一覧で選んでいる配送担当者（""＝全員）
+let VOICE = load("haiso.voice", true);
+
+/* ---------- 配達の品物 ---------- */
+const mbase = s => String(s||"").toUpperCase().normalize("NFKC").replace(/[^A-Z0-9]/g,"").slice(0,8);
+const col = (r, k) => String(r[k] ?? "").replace(/\.0$/,"").trim();
+const isHaitatsu = r => /配達/.test(col(r,"仕分処理") + col(r,"仕分内容"));
+const kata = r => col(r,"形名") || col(r,"標準品") || col(r,"特殊品");
+const driver = r => col(r,"配送担当者").replace(/　/g,"").trim() || "未定";
+// 「1120配達」→ 配達日。出荷日から見て、近い方の年にする
+function hDate(r){
+  const m = col(r,"仕分処理").match(/(\d{2})(\d{2})/); const ship = col(r,"出荷日");
+  if (!m) return "";
+  let y = ship.length === 8 ? +ship.slice(0,4) : new Date().getFullYear();
+  const shipM = ship.length === 8 ? +ship.slice(4,6) : new Date().getMonth()+1;
+  if (+m[1] < shipM - 6) y++;
+  return `${y}${m[1]}${m[2]}`;
+}
+const dTxt = d => { if (d.length !== 8) return "日付なし"; const x = new Date(+d.slice(0,4), +d.slice(4,6)-1, +d.slice(6,8)); return `${x.getMonth()+1}/${x.getDate()}(${WD[x.getDay()]})`; };
+function dSay(d){
+  if (d.length !== 8) return "";
+  const x = new Date(+d.slice(0,4), +d.slice(4,6)-1, +d.slice(6,8)), t = new Date(); t.setHours(0,0,0,0);
+  const n = Math.round((x - t)/86400000);
+  if (n === 0) return "今日"; if (n === 1) return "明日"; if (n === 2) return "あさって";
+  return `${x.getMonth()+1}月${x.getDate()}日`;
+}
+const todayKey = () => { const t = new Date(); return `${t.getFullYear()}${p2(t.getMonth()+1)}${p2(t.getDate())}`; };
+const COLORS = {"木下":"#ff8a65","茶木":"#a1887f","菱越":"#81c784","新村":"#ba68c8","未定":"#90a4ae"};
+const colorOf = n => COLORS[n] || "#4fc3f7";
+const san = n => n === "未定" ? "配送担当者が決まっていません" : n + "さん";
+
+function haiRows(){ return (DATA.shukka||[]).filter(isHaitatsu); }
+function days(){ return [...new Set(haiRows().map(hDate).filter(Boolean))].sort(); }
+function curDay(){
+  const ds = days(); if (!ds.length) return "";
+  if (DAY && ds.includes(DAY)) return DAY;
+  const t = todayKey(); return ds.find(d => d >= t) || ds[ds.length-1];
+}
+function dayRows(){ const d = curDay(); return haiRows().filter(r => hDate(r) === d); }
+
+/* ---------- 画面 ---------- */
+function renderChips(){
+  const ds = days(), cur = curDay(), t = todayKey();
+  const html = ds.filter(d => d >= addDaysKey(t,-3)).map(d => `<button data-day="${d}" class="${d===cur?"on":""}">${d===t?"今日 ":""}${dTxt(d)}（${haiRows().filter(r=>hDate(r)===d).length}）</button>`).join("") || `<span class="note">配達の品物がありません。設定で「シートから読み込む」を押してください</span>`;
+  $("dayChips").innerHTML = html; $("dayChips2").innerHTML = html;
+}
+function addDaysKey(k, n){ const x = new Date(+k.slice(0,4), +k.slice(4,6)-1, +k.slice(6,8)+n); return `${x.getFullYear()}${p2(x.getMonth()+1)}${p2(x.getDate())}`; }
+function counts(){ const rs = dayRows(); const g = rs.filter(r => GOT[mbase(col(r,"マシンNo"))]).length; return {all:rs.length, got:g, left:rs.length-g}; }
+function renderSum(){
+  const c = counts(); $("nAll").textContent = c.all; $("nGot").textContent = c.got; $("nLeft").textContent = c.left;
+  const b = $("badge"); b.textContent = DATA.at ? `配達 ${haiRows().length}件` : "未読み込み"; b.className = "badge " + (DATA.at ? "ok" : "ng");
+}
+function renderList(){
+  const rs = dayRows(), cur = curDay();
+  const drvs = [...new Set(rs.map(driver))].sort((a,b)=> (a==="未定")-(b==="未定") || a.localeCompare(b,"ja"));
+  if (DRV && !drvs.includes(DRV)) DRV = "";
+  $("drvChips").innerHTML = `<button data-drv="" class="${DRV===""?"on":""}">全員（${rs.length}）</button>` + drvs.map(n=>`<button data-drv="${esc(n)}" class="${DRV===n?"on":""}" style="border-left:6px solid ${colorOf(n)}">${esc(n)}（${rs.filter(r=>driver(r)===n).length}）</button>`).join("");
+  $("listInfo").textContent = DATA.at ? `配達日 ${dTxt(cur)} の分（出荷リスト読み込み ${DATA.at}）` : "設定で「シートから読み込む」を押してください";
+  const groups = drvs.filter(n => !DRV || n === DRV);
+  $("listBox").innerHTML = groups.map(n => {
+    const L = rs.filter(r => driver(r) === n).sort((a,b)=> (GOT[mbase(col(a,"マシンNo"))]?1:0)-(GOT[mbase(col(b,"マシンNo"))]?1:0) || col(a,"得意先名").localeCompare(col(b,"得意先名"),"ja"));
+    const g = L.filter(r => GOT[mbase(col(r,"マシンNo"))]).length;
+    return `<h2><span class="dot" style="background:${colorOf(n)}"></span>${esc(n)}<span class="n">${g}/${L.length} そろった</span><button data-share="${esc(n)}">📤 リストを送る</button></h2><ul class="its">` +
+      L.map(r => { const k = mbase(col(r,"マシンNo")), d = !!GOT[k];
+        return `<li class="${d?"done":""}" style="--c:${colorOf(n)}"><span class="ck">${d?"✓":""}</span><span><span class="m">${esc(col(r,"マシンNo"))}</span>　${esc(kata(r))} ×${esc(col(r,"数量"))}<div class="s">${esc([col(r,"得意先名"), col(r,"運送会社"), col(r,"仕分処理")].filter(Boolean).join("　"))}</div></span></li>`; }).join("") + `</ul>`;
+  }).join("") || `<p class="note">この日の配達の品物はありません</p>`;
+}
+function renderAll(){ renderChips(); renderSum(); renderList(); }
+document.addEventListener("click", e => {
+  const d = e.target.closest("button[data-day]"); if (d){ DAY = d.dataset.day; save("haiso.day", DAY); renderAll(); const c = counts(); say(`${dSay(DAY)}の配達、${c.all}件です。` + (c.left ? `残り${c.left}件` : "")); return; }
+  const v = e.target.closest("button[data-drv]"); if (v){ DRV = v.dataset.drv; save("haiso.drv", DRV); renderList(); return; }
+  const s = e.target.closest("button[data-share]"); if (s) share(s.dataset.share);
+});
+
+/* ---------- 読む ---------- */
+function find(code){
+  const b = mbase(code); if (!b) return null;
+  const all = (DATA.shukka||[]).filter(r => mbase(col(r,"マシンNo")) === b);
+  if (!all.length) return {none:true, b};
+  const cur = curDay();
+  return all.find(r => isHaitatsu(r) && hDate(r) === cur) || all.find(isHaitatsu) || all[0];
+}
+let lastCode = "", lastAt = 0;
+function handle(raw){
+  const code = String(raw||"").normalize("NFKC").trim(); if (!code) return;
+  if (code === lastCode && Date.now()-lastAt < 2500) return;
+  lastCode = code; lastAt = Date.now();
+  const r = find(code);
+  const box = $("result");
+  if (!r || r.none){
+    if (!/[A-Z]/i.test(code)) return;     // 数字だけのバーコードは飛ばす
+    beep("ng"); vib([80,60,80]);
+    box.style.background = "var(--ng)"; box.style.color = "#fff"; box.innerHTML = `<div class="who">データにありません</div><div class="sub">${esc(code)}　出荷リストを読み込み直すか、マシンNoを確かめてください</div>`;
+    say("データにありません"); return;
+  }
+  if (!isHaitatsu(r)){
+    beep("ng"); vib([80,60,80]);
+    box.style.background = "var(--warn)"; box.style.color = "#fff"; box.innerHTML = `<div class="who">配達の品ではありません</div><div class="when">${esc(col(r,"仕分処理"))}</div><div class="sub">${esc(col(r,"マシンNo"))}　${esc(col(r,"得意先名"))}</div>`;
+    say(`配達の品ではありません。${col(r,"仕分内容") || col(r,"仕分処理")}です`); return;
+  }
+  const n = driver(r), d = hDate(r), k = mbase(col(r,"マシンNo")), dup = !!GOT[k];
+  GOT[k] = {d, at:Date.now()}; save("haiso.got", GOT);
+  const other = d !== curDay();
+  beep(dup ? "dup" : "ok"); vib(dup ? 30 : 70);
+  box.style.background = colorOf(n); box.style.color = "#111";
+  box.innerHTML = `<div class="who">${esc(n)}</div><div class="when">${esc(dTxt(d))} 配達${other ? "（選んでいる日と違います）" : ""}</div><div class="sub">${esc(col(r,"マシンNo"))}　${esc(kata(r))} ×${esc(col(r,"数量"))}　${esc(col(r,"得意先名"))}</div>`;
+  renderSum(); renderList();
+  const c = counts();
+  if (dup) say(`${san(n)}。もう読みました`);
+  else say(`${san(n)}、${dSay(d)}の配達です。` + (other ? "選んでいる日と違います。" : (c.left ? `残り${c.left}件` : "この日の配達は全部そろいました")));
+}
+$("manual").onsubmit = e => { e.preventDefault(); const v = $("manualIn").value; $("manualIn").value = ""; lastCode = ""; handle(v); };
+
+/* ---------- 共有（配送担当者へリストを送る） ---------- */
+async function share(n){
+  const rs = dayRows().filter(r => driver(r) === n);
+  const text = `${dTxt(curDay())} 配達　${n}さん分（${rs.length}件）\n` + rs.map((r,i) => `${i+1}. ${col(r,"得意先名")}　${col(r,"マシンNo")}　${kata(r)} ×${col(r,"数量")}`).join("\n");
+  try{ if (navigator.share){ await navigator.share({text}); return; } }catch(e){ if (e && e.name === "AbortError") return; }
+  try{ await navigator.clipboard.writeText(text); alertMsg("リストをコピーしました。TeamsやLINEに貼り付けて送ってください"); }catch(e){ alertMsg("送れませんでした"); }
+}
+function alertMsg(t){ const b = $("result"); b.style.background = "var(--idle)"; b.style.color = ""; b.innerHTML = `<div class="sub">${esc(t)}</div>`; }
+
+/* ---------- 音・声 ---------- */
+let ac = null;
+function audio(){ if(!ac){ const C = window.AudioContext||window.webkitAudioContext; if(C) ac = new C(); } if(ac && ac.state==="suspended") ac.resume(); return ac; }
+function tone(f, st, d, type="sine", vol=.3){ const a = audio(); if(!a) return; const o = a.createOscillator(), g = a.createGain(); o.type = type; o.frequency.value = f; o.connect(g); g.connect(a.destination); const t = a.currentTime+st; g.gain.setValueAtTime(vol,t); g.gain.exponentialRampToValueAtTime(.001,t+d); o.start(t); o.stop(t+d+.02); }
+function beep(k){ if (k==="ok"){ tone(1320,0,.1); tone(1760,.1,.15); } else if (k==="dup") tone(880,0,.15,"triangle"); else tone(220,0,.35,"square",.2); }
+const vib = p => { try{ navigator.vibrate && navigator.vibrate(p); }catch(e){} };
+function say(text){
+  if (!VOICE || !("speechSynthesis" in window)) return;
+  try{ speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.lang = "ja-JP"; u.rate = 1.1;
+    const v = speechSynthesis.getVoices().find(x => /^ja/i.test(x.lang)); if (v) u.voice = v; speechSynthesis.speak(u); }catch(e){}
+}
+
+/* ---------- カメラ ---------- */
+let detector = null;
+try{ if ("BarcodeDetector" in window) detector = new BarcodeDetector({formats:["qr_code","code_128","code_39","ean_13","itf","codabar"]}); }catch(e){ try{ detector = new BarcodeDetector({formats:["qr_code"]}); }catch(e2){} }
+let zxOK = null;
+async function decodeAll(cv){
+  if (detector){ try{ const r = await detector.detect(cv); if (r && r.length) return r.map(x=>x.rawValue); }catch(e){} }
+  const W = cv.width, H = cv.height, img = cv.getContext("2d",{willReadFrequently:true}).getImageData(0,0,W,H);
+  if (window.ZXingWASM && zxOK !== false){
+    try{ const r = await ZXingWASM.readBarcodes(img, {formats:["QRCode","Code128","Code39","EAN-13","ITF","Codabar"], tryHarder:true, maxNumberOfSymbols:4}); zxOK = true; return (r||[]).filter(x=>x.isValid && x.text).map(x=>x.text); }catch(e){ zxOK = false; }
+  }
+  if (window.jsQR){ const r = jsQR(img.data, W, H, {inversionAttempts:"dontInvert"}); if (r) return [r.data]; }
+  return [];
+}
+let running = false, tab = "scan", tries = 0; const work = document.createElement("canvas");
+async function startCam(){
+  audio(); $("tapStart").hidden = true;
+  let stream;
+  try{ stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1920},height:{ideal:1080}},audio:false}); }
+  catch(e){ try{ stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"},audio:false}); }
+    catch(e2){ $("tapStart").hidden = false; $("tapStart").innerHTML = "カメラを使えませんでした<small>カメラを「許可」にして、もう一度タップしてください</small>"; return; } }
+  const v = $("video"); v.srcObject = stream; await v.play().catch(()=>{});
+  running = true; loop();
+  const c = counts(); say(DATA.at ? `配達の品物を読んでください。${dSay(curDay())}の配達は${c.all}件、残り${c.left}件です` : "先に設定で、シートから読み込んでください");
+}
+$("tapStart").onclick = startCam;
+async function loop(){
+  if (!running) return;
+  const v = $("video");
+  if (tab === "scan" && v.readyState >= 2 && v.videoWidth){
+    try{
+      const W = v.videoWidth, H = v.videoHeight, k = Math.min(1, 1280/Math.max(W,H));
+      work.width = Math.round(W*k); work.height = Math.round(H*k);
+      work.getContext("2d",{willReadFrequently:true}).drawImage(v,0,0,work.width,work.height);
+      const codes = await decodeAll(work); tries++;
+      $("diag").textContent = `カメラ ${W}×${H}　解析 ${tries}回`;
+      if (codes.length){ $("seen").hidden = false; $("seen").textContent = "読めています：" + codes.join(" / "); setTimeout(()=>$("seen").hidden = true, 1200); codes.forEach(handle); }
+    }catch(e){}
+  }
+  setTimeout(loop, 90);
+}
+
+/* ---------- 読み込み・設定 ---------- */
+async function loadData(quiet){
+  if (!SET.url){ if (!quiet) msg("URLを入れてください","ng"); renderAll(); return; }
+  $("loadBtn").disabled = true; $("loadBtn").textContent = "読み込み中…";
+  try{
+    const u = new URL(SET.url); u.searchParams.set("key", SET.key||""); u.searchParams.set("days", "14");
+    const j = await (await fetch(u.toString(), {redirect:"follow"})).json();
+    if (j.error) throw new Error(j.error);
+    DATA = {at: new Date().toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"numeric",minute:"2-digit"}), shukka: j.shukka || []};
+    save("haiso.data", DATA);
+    if (!quiet) msg(`読み込みました（配達 ${haiRows().length}件）`, "ok");
+  }catch(e){ if (!quiet) msg("読み込めませんでした：" + (e.message||e), "ng"); }
+  $("loadBtn").disabled = false; $("loadBtn").textContent = "シートから読み込む";
+  $("dataInfo").textContent = DATA.at ? `読み込み ${DATA.at}　配達 ${haiRows().length}件` : "まだ読み込んでいません";
+  renderAll();
+}
+function msg(t, cls){ const m = $("setMsg"); m.hidden = false; m.className = "msg " + (cls||""); m.textContent = t; }
+$("loadBtn").onclick = () => loadData(false);
+$("saveSet").onclick = () => { SET = {url:$("gasUrl").value.trim(), key:$("gasKey").value.normalize("NFKC").trim()}; save("haiso.set", SET); msg("保存しました","ok"); loadData(false); };
+$("voiceOn").onchange = () => { VOICE = $("voiceOn").checked; save("haiso.voice", VOICE); };
+$("clearGot").onclick = () => { GOT = {}; save("haiso.got", GOT); renderAll(); msg("チェックを消しました","ok"); };
+// 古いチェック（配達日から3日以上たったもの）は消す
+(() => { const lim = addDaysKey(todayKey(), -3); let ch = false; for (const k in GOT) if (!GOT[k].d || GOT[k].d < lim){ delete GOT[k]; ch = true; } if (ch) save("haiso.got", GOT); })();
+
+document.querySelector("nav").onclick = e => {
+  const b = e.target.closest("button[data-t]"); if (!b) return;
+  tab = b.dataset.t;
+  document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on", x===b));
+  ["scan","list","set"].forEach(t => $("v-"+t).hidden = t !== tab);
+  if (tab === "list") renderList();
+};
+$("gasUrl").value = SET.url||""; $("gasKey").value = SET.key||""; $("voiceOn").checked = VOICE !== false;
+$("dataInfo").textContent = DATA.at ? `読み込み ${DATA.at}　配達 ${haiRows().length}件` : "まだ読み込んでいません";
+renderAll();
+loadData(true);
+</script>
+</body>
+</html>
