@@ -130,6 +130,7 @@ nav button.on{background:var(--accent);color:var(--accent-fg)}
   </select>
   <p class="lbl">知らせる</p>
   <select id="fR" aria-label="知らせるとき">
+    <option value="custom">⏰ 自分で時刻を決める</option>
     <option value="none">知らせない</option>
     <option value="morning" selected>当日の朝 8:00</option>
     <option value="prev">前の出勤日の 16:00</option>
@@ -137,6 +138,10 @@ nav button.on{background:var(--accent);color:var(--accent-fg)}
     <option value="15">期限の15分前（時刻を入れたとき）</option>
     <option value="0">期限の時刻ちょうど</option>
   </select>
+  <div class="row" id="customBox" hidden>
+    <select id="fRD" aria-label="知らせる日"><option value="0">期限の日</option><option value="prev">前の出勤日</option></select>
+    <input type="time" id="fRT" aria-label="知らせる時刻" value="08:30">
+  </div>
   <p class="lbl">相手・メモ（なくてもよい）</p>
   <input id="fM" placeholder="例：坂本さん（112206）／オーダNo 3612" autocomplete="off">
   <div class="row"><button id="saveBtn" class="big">入れる</button></div>
@@ -216,6 +221,7 @@ function remindAt(it){
   if (!it.d || it.r === "none") return null;
   const d = parseYmd(it.d);
   if (it.r === "morning"){ d.setHours(8,0,0,0); return d; }
+  if (it.r === "custom"){ let x = d; if (it.rd === "prev"){ x = addDays(d,-1); while (x.getDay()===0 || x.getDay()===6) x = addDays(x,-1); } const [H,M] = (it.rt||"08:30").split(":").map(Number); x.setHours(H,M,0,0); return x; }
   if (it.r === "prev"){ let x = addDays(d,-1); while (x.getDay()===0 || x.getDay()===6) x = addDays(x,-1); x.setHours(16,0,0,0); return x; }
   const due = dueAt(it); if (!due) return null;
   return new Date(due.getTime() - Number(it.r)*60000);
@@ -383,17 +389,20 @@ $("qDay").onclick = e => {
 $("wkFri").onclick = () => { let d = parseYmd($("fD").value); while (isOff(d)) d = addDays(d,-1); $("fD").value = ymd(d); markQuick(); };
 $("wkMon").onclick = () => { let d = parseYmd($("fD").value); while (isOff(d)) d = addDays(d,1); $("fD").value = ymd(d); markQuick(); };
 $("fD").onchange = markQuick;
+function showCustom(){ $("customBox").hidden = $("fR").value !== "custom"; }
+$("fR").onchange = showCustom;
 function openEdit(id){
   EDIT = id ? ITEMS.find(i=>i.id===id) : null;
   $("fT").value = EDIT ? EDIT.t : ""; $("fD").value = EDIT ? EDIT.d : ymd(today0()); $("fH").value = EDIT ? EDIT.h : "";
   $("fR").value = EDIT ? EDIT.r : "morning"; $("fM").value = EDIT ? EDIT.m : ""; $("fP").value = EDIT ? (EDIT.rep||"none") : "none";
+  $("fRD").value = EDIT && EDIT.rd ? EDIT.rd : "0"; $("fRT").value = EDIT && EDIT.rt ? EDIT.rt : "08:30"; showCustom();
   $("saveBtn").textContent = EDIT ? "直す" : "入れる"; $("delBtn").hidden = !EDIT;
   $("addMsg").hidden = true; $("heard").textContent = "";
   markQuick(); setTab("add");
   document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("on", b.dataset.t==="add"));
 }
 function readForm(){
-  return {t:$("fT").value.trim(), d:$("fD").value, h:$("fH").value, r:$("fR").value, m:$("fM").value.trim(), rep:$("fP").value};
+  return {t:$("fT").value.trim(), d:$("fD").value, h:$("fH").value, r:$("fR").value, m:$("fM").value.trim(), rep:$("fP").value, rd:$("fRD").value, rt:$("fRT").value};
 }
 $("saveBtn").onclick = () => {
   const f = readForm();

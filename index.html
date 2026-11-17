@@ -96,7 +96,9 @@ function remindAt(it){
   if (!it.d || it.r === "none") return null;
   const d = pd(it.d);
   if (it.r === "morning"){ d.setHours(8,0,0,0); return d; }
-  if (it.r === "prev"){ d.setDate(d.getDate()-1); d.setHours(16,0,0,0); return d; }
+  const prevWork = x => { do { x.setDate(x.getDate()-1); } while (x.getDay()===0 || x.getDay()===6); return x; };
+  if (it.r === "custom"){ if (it.rd === "prev") prevWork(d); const [H,M] = (it.rt||"08:30").split(":").map(Number); d.setHours(H,M,0,0); return d; }
+  if (it.r === "prev"){ prevWork(d); d.setHours(16,0,0,0); return d; }
   const due = pd(it.d); if (it.h){ const [h,m] = it.h.split(":").map(Number); due.setHours(h,m,0,0); } else due.setHours(17,0,0,0);
   return new Date(due.getTime() - Number(it.r)*60000);
 }
