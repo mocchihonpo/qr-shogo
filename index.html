@@ -29,10 +29,18 @@ details li{margin:6px 0}
 .vbtn[aria-pressed="false"]{opacity:.6}
 a.app .no{flex:0 0 auto;font-size:13px;font-weight:700;color:var(--muted);width:1.2em;text-align:center}
 a.app.going{outline:3px solid var(--c);outline-offset:2px}
+.todo{display:flex;gap:10px;align-items:center;max-width:560px;margin:0 0 12px;padding:10px 12px;border-radius:14px;background:#3a2620;border:1.5px solid #ff8a65;color:var(--fg);text-decoration:none}
+.todo.now{background:#5a2a1c;animation:blink 1.2s 3}
+@keyframes blink{50%{background:#8a3a22}}
+.todo .tt{flex:1;min-width:0}
+.todo b{display:block;font-size:15px;color:#ff8a65}
+.todo span{display:block;font-size:13px;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.todo button{flex:0 0 46px;height:46px;border-radius:12px;border:1.5px solid #ff8a65;background:transparent;font-size:22px;cursor:pointer}
 </style>
 </head>
 <body>
 <div class="head"><h1>倉庫アプリ</h1><button id="voice" class="vbtn" aria-pressed="true">🔊 声の案内 ON</button></div>
+<a class="todo" id="todo" href="yotei/" hidden><div class="tt"><b id="todoHead"></b><span id="todoList"></span></div><button id="todoSay" type="button" aria-label="今日のやることを聞く">🔊</button></a>
 <div class="apps">
   <a class="app" style="--c:#ff8a65" href="yotei/" data-say="やること・納期です。今日のやることと納期を確かめます"><span class="no">1</span><span class="ic">⏰</span><div><b>やること・納期</b><span>朝いちばんに。今日のやることと納期を、声と音で知らせる</span></div></a>
   <a class="app" style="--c:#2f6f4b" href="nyuka/" data-say="入荷品カメラです。届いた品物の写真を撮って送ります"><span class="no">2</span><span class="ic">📦</span><div><b>入荷品カメラ</b><span>品物が届いたら。写真を撮って「納入品」フォルダへ送る</span></div></a>
@@ -68,12 +76,70 @@ function speak(text, done){
     speechSynthesis.speak(u);
   }catch(e){ done && done(); }
 }
+/* ---- やること・納期から、今日の分と「知らせる時刻が来たもの」を出す ---- */
+const p2 = n => String(n).padStart(2,"0");
+const ymd = d => `${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}`;
+const t0 = () => { const d = new Date(); d.setHours(0,0,0,0); return d; };
+const pd = s => { const [y,m,d] = s.split("-").map(Number); return new Date(y,m-1,d); };
+const sayTime = h => { if (!h) return ""; const [H,M] = h.split(":").map(Number); return `${H}時` + (M ? `${M}分` : ""); };
+function items(){
+  let L = []; try{ L = JSON.parse(localStorage.getItem("yotei.items")) || []; }catch(e){}
+  const base = t0();
+  for (const it of L){
+    if (!it.rep || it.rep === "none") continue;
+    let d = base; if (it.rep === "weekday") while (d.getDay() === 0 || d.getDay() === 6) d = new Date(d.getTime() + 86400000);
+    it.d = ymd(d); it.done = it.doneOn === it.d;
+  }
+  return L.filter(it => !it.done);
+}
+function remindAt(it){
+  if (!it.d || it.r === "none") return null;
+  const d = pd(it.d);
+  if (it.r === "morning"){ d.setHours(8,0,0,0); return d; }
+  if (it.r === "prev"){ d.setDate(d.getDate()-1); d.setHours(16,0,0,0); return d; }
+  const due = pd(it.d); if (it.h){ const [h,m] = it.h.split(":").map(Number); due.setHours(h,m,0,0); } else due.setHours(17,0,0,0);
+  return new Date(due.getTime() - Number(it.r)*60000);
+}
+function dueToday(){ const ts = ymd(t0()); return items().filter(it => it.d && it.d <= ts).sort((a,b)=>(a.d+(a.h||"99")).localeCompare(b.d+(b.h||"99"))); }
+// 知らせる時刻が来ていて、まだこの入口で声に出していないもの
+function heardKey(it){ const r = remindAt(it); return it.id + "|" + (r ? r.getTime() : ""); }
+function dueNow(){
+  let heard = []; try{ heard = JSON.parse(sessionStorage.getItem("souko.heard")) || []; }catch(e){}
+  const now = Date.now();
+  return items().filter(it => { const r = remindAt(it); return r && now >= r.getTime() && now - r.getTime() < 12*3600*1000 && !heard.includes(heardKey(it)); });
+}
+function markHeard(L){ let heard = []; try{ heard = JSON.parse(sessionStorage.getItem("souko.heard")) || []; }catch(e){} L.forEach(it => heard.push(heardKey(it))); try{ sessionStorage.setItem("souko.heard", JSON.stringify(heard)); }catch(e){} }
+const nowText = L => L.map(it => (it.h ? sayTime(it.h) + "、" : "") + it.t + (/(ください|する|して)$/.test(it.t) ? "" : "の時間です")).join("。") + "。";
+function renderTodo(){
+  const L = dueToday(), box = document.getElementById("todo");
+  if (!L.length){ box.hidden = true; return; }
+  const ts = ymd(t0()), over = L.filter(it => it.d < ts).length;
+  box.hidden = false;
+  document.getElementById("todoHead").textContent = `今日のやること ${L.length}件` + (over ? `（うち期限切れ ${over}件）` : "");
+  document.getElementById("todoList").textContent = L.slice(0,3).map(it => (it.h ? it.h + " " : "") + it.t).join("　／　");
+  box.classList.toggle("now", dueNow().length > 0);
+}
+document.getElementById("todoSay").onclick = e => {
+  e.preventDefault(); e.stopPropagation();
+  const L = dueToday(); if (!L.length) return;
+  speak(`今日のやることは${L.length}件です。` + L.slice(0,8).map(it => (it.h ? sayTime(it.h) + "まで、" : "") + it.t).join("。") + "。");
+  markHeard(dueNow());
+};
+renderTodo();
+
 document.querySelectorAll("a.app").forEach(a => a.addEventListener("click", e => {
-  if (!on) return;
+  const now = dueNow();
+  if (!on && !now.length) return;
   e.preventDefault();
   document.querySelectorAll("a.app.going").forEach(x=>x.classList.remove("going")); a.classList.add("going");
-  speak(a.dataset.say, () => { location.href = a.href; });
+  const text = (now.length ? "お知らせです。" + nowText(now) : "") + (on ? a.dataset.say : "");
+  markHeard(now);
+  speak(text, () => { location.href = a.href; });
 }));
+// 入口を開いたままのとき：時刻が来たら声で知らせる（一度どこかをさわった後）
+let touched = false; document.addEventListener("pointerdown", () => { touched = true; }, {once:true});
+setInterval(() => { renderTodo(); const now = dueNow(); if (touched && now.length){ markHeard(now); speak("お知らせです。" + nowText(now)); } }, 20000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) renderTodo(); });
 window.addEventListener("pageshow", () => document.querySelectorAll("a.app.going").forEach(x=>x.classList.remove("going")));
 </script>
 </body>

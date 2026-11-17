@@ -117,6 +117,12 @@ nav button.on{background:var(--accent);color:var(--accent-fg)}
     <button data-d="0">今日</button><button data-d="1">明日</button><button data-d="2">あさって</button><button data-d="fri">今週金曜</button><button data-d="7">1週間後</button><button data-d="none">日付なし</button>
   </div>
   <div class="row"><input type="date" id="fD" aria-label="期限の日"><input type="time" id="fH" aria-label="期限の時刻（なくてもよい）"></div>
+  <p class="lbl">くりかえし</p>
+  <select id="fP" aria-label="くりかえし">
+    <option value="none">しない（1回だけ）</option>
+    <option value="weekday">平日（月〜金）毎日</option>
+    <option value="daily">毎日</option>
+  </select>
   <p class="lbl">知らせる</p>
   <select id="fR" aria-label="知らせるとき">
     <option value="none">知らせない</option>
@@ -253,6 +259,21 @@ function say(text){
 }
 const vib = p => { try{ navigator.vibrate && navigator.vibrate(p); }catch(e){} };
 
+/* ---------- くりかえし：毎日・平日の分は、その日の分として出す ---------- */
+function isWork(d){ const w = d.getDay(); return w >= 1 && w <= 5; }
+function normalize(){
+  const t0 = today0(), ts = ymd(t0);
+  for (const it of ITEMS){
+    if (!it.rep || it.rep === "none") continue;
+    let d = t0;
+    if (it.rep === "weekday") while (!isWork(d)) d = addDays(d, 1);
+    const ds = ymd(d);
+    if (it.d !== ds){ it.d = ds; it.snooze = 0; }
+    it.done = it.doneOn === ds;
+  }
+}
+const repName = it => it.rep === "daily" ? "毎日" : it.rep === "weekday" ? "平日" : "";
+
 /* ---------- 一覧 ---------- */
 function bucket(it){
   if (it.done) return "done";
@@ -263,6 +284,7 @@ function bucket(it){
 const BUCKETS = [["over","⚠ 期限切れ"],["today","今日まで"],["tomorrow","明日まで"],["week","1週間以内"],["later","それより先"],["none","日付なし"],["done","済んだもの"]];
 function sortKey(it){ const d = dueAt(it); return d ? d.getTime() : 9e15; }
 function render(){
+  normalize();
   const t = new Date();
   $("todayDate").textContent = `${t.getMonth()+1}月${t.getDate()}日（${WD[t.getDay()]}）`;
   const open = ITEMS.filter(i=>!i.done);
@@ -281,7 +303,7 @@ function render(){
       return `<li class="${k==="over"?"over":k==="today"?"today":""} ${it.done?"done":""}">
         <button class="ck" data-ck="${it.id}" aria-label="${esc(it.t)}を${it.done?"まだ":"済んだ"}にする">${it.done?"✓":""}</button>
         <div class="b" data-ed="${it.id}"><div class="t">${esc(it.t)}</div>
-        <div class="d">${esc(dayLabel(it.d))}${it.h?" "+esc(it.h)+"まで":""}</div>
+        <div class="d">${esc(dayLabel(it.d))}${it.h?" "+esc(it.h)+"まで":""}${repName(it)?`<span class="tag">🔁 ${repName(it)}</span>`:""}</div>
         ${(it.m||rtxt)?`<div class="s">${esc(it.m||"")}${it.m&&rtxt?"　":""}${rtxt}</div>`:""}</div></li>`;
     }).join("") + `</ul>`;
   }
@@ -290,7 +312,7 @@ function render(){
 $("listBox").onclick = e => {
   const ck = e.target.closest("[data-ck]");
   if (ck){ const it = ITEMS.find(i=>i.id===ck.dataset.ck); if (!it) return;
-    it.done = !it.done; it.doneAt = it.done ? Date.now() : 0; persist(); render();
+    it.done = !it.done; it.doneAt = it.done ? Date.now() : 0; if (it.rep && it.rep !== "none") it.doneOn = it.done ? it.d : ""; persist(); render();
     if (it.done){ tone(1320,0,.1); tone(1760,.1,.15); vib(40); say("済みにしました"); }
     return; }
   const ed = e.target.closest("[data-ed]"); if (ed) openEdit(ed.dataset.ed);
@@ -299,7 +321,7 @@ $("showDone").onchange = render;
 
 /* ---------- 読み上げ ---------- */
 function speakToday(){
-  audio();
+  audio(); normalize();
   const open = ITEMS.filter(i=>!i.done);
   const over = open.filter(i=>bucket(i)==="over").sort((a,b)=>sortKey(a)-sortKey(b));
   const tod = open.filter(i=>bucket(i)==="today").sort((a,b)=>sortKey(a)-sortKey(b));
@@ -345,18 +367,19 @@ $("fD").onchange = markQuick;
 function openEdit(id){
   EDIT = id ? ITEMS.find(i=>i.id===id) : null;
   $("fT").value = EDIT ? EDIT.t : ""; $("fD").value = EDIT ? EDIT.d : ymd(today0()); $("fH").value = EDIT ? EDIT.h : "";
-  $("fR").value = EDIT ? EDIT.r : "morning"; $("fM").value = EDIT ? EDIT.m : "";
+  $("fR").value = EDIT ? EDIT.r : "morning"; $("fM").value = EDIT ? EDIT.m : ""; $("fP").value = EDIT ? (EDIT.rep||"none") : "none";
   $("saveBtn").textContent = EDIT ? "直す" : "入れる"; $("delBtn").hidden = !EDIT;
   $("addMsg").hidden = true; $("heard").textContent = "";
   markQuick(); setTab("add");
   document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("on", b.dataset.t==="add"));
 }
 function readForm(){
-  return {t:$("fT").value.trim(), d:$("fD").value, h:$("fH").value, r:$("fR").value, m:$("fM").value.trim()};
+  return {t:$("fT").value.trim(), d:$("fD").value, h:$("fH").value, r:$("fR").value, m:$("fM").value.trim(), rep:$("fP").value};
 }
 $("saveBtn").onclick = () => {
   const f = readForm();
   if (!f.t){ msg("addMsg","やることを入れてください","ng"); return; }
+  if (f.rep !== "none" && !f.d) f.d = ymd(today0());
   if (EDIT){ Object.assign(EDIT, f, {fired:[]}); }
   else ITEMS.push(Object.assign({id:newId(), done:false, doneAt:0, fired:[], at:Date.now()}, f));
   persist(); tone(1320,0,.1); tone(1760,.1,.15);
@@ -408,7 +431,9 @@ $("calBtn").onclick = () => {
     "UID:"+newId()+"@souko-yotei","DTSTAMP:"+icsDate(new Date()),
     f.h ? "DTSTART:"+icsDate(start) : "DTSTART;VALUE=DATE:"+f.d.replace(/-/g,""),
     f.h ? "DTEND:"+icsDate(new Date(start.getTime()+30*60000)) : "DTEND;VALUE=DATE:"+ymd(addDays(start,1)).replace(/-/g,""),
-    "SUMMARY:"+icsEsc("【納期】"+f.t), "DESCRIPTION:"+icsEsc(f.m||"")];
+    "SUMMARY:"+icsEsc((f.rep !== "none" ? "" : "【納期】")+f.t), "DESCRIPTION:"+icsEsc(f.m||"")];
+  if (f.rep === "daily") lines.push("RRULE:FREQ=DAILY");
+  if (f.rep === "weekday") lines.push("RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR");
   if (r){
     const mins = Math.round((r.getTime() - (f.h ? start.getTime() : parseYmd(f.d).getTime()))/60000);
     lines.push("BEGIN:VALARM","ACTION:DISPLAY","DESCRIPTION:"+icsEsc(f.t), "TRIGGER:"+(mins<0?"-":"")+"PT"+Math.abs(mins)+"M","END:VALARM");
@@ -424,6 +449,7 @@ $("calBtn").onclick = () => {
 let ringing = null, ringTimer = null;
 function check(){
   if (ringing) return;
+  normalize();
   const now = Date.now();
   for (const it of ITEMS){
     if (it.done) continue;
@@ -447,7 +473,7 @@ function ring(it){
 }
 function stopRing(){ clearInterval(ringTimer); $("alarm").hidden = true; ringing = null; try{ speechSynthesis.cancel(); }catch(e){} render(); }
 $("alStop").onclick = stopRing;
-$("alDone").onclick = () => { if (ringing){ ringing.done = true; ringing.doneAt = Date.now(); persist(); } stopRing(); say("済みにしました"); };
+$("alDone").onclick = () => { if (ringing && ringing.id !== "test"){ ringing.done = true; ringing.doneAt = Date.now(); if (ringing.rep && ringing.rep !== "none") ringing.doneOn = ringing.d; persist(); } stopRing(); say("済みにしました"); };
 $("alSnooze").onclick = () => { if (ringing){ ringing.snooze = Date.now() + 10*60000; persist(); } stopRing(); say("10分後に、もう一度知らせます"); };
 setInterval(check, 15000);
 document.addEventListener("visibilitychange", ()=>{ if (!document.hidden){ render(); check(); } });
