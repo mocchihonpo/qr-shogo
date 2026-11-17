@@ -66,6 +66,10 @@ h2.over{color:#ff6b61}
 .quick{display:flex;flex-wrap:wrap;gap:6px}
 .quick button{min-height:36px;padding:2px 12px;font-size:13px}
 .quick button.on{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+.quick button small{display:block;font-size:11px;font-weight:400;opacity:.85}
+.wk{display:flex;flex-wrap:wrap;gap:6px;align-items:center;background:#4a3a14;border:1.5px solid var(--warn);border-radius:10px;padding:6px 8px;font-size:13px}
+.wk span{flex:1 1 100%;font-weight:700}
+.wk button{min-height:36px;font-size:13px;flex:1}
 .mic{flex:0 0 54px!important;font-size:22px;padding:0}
 .mic.on{background:var(--ng);border-color:var(--ng);animation:pulse 1s infinite}
 @keyframes pulse{50%{opacity:.6}}
@@ -114,9 +118,10 @@ nav button.on{background:var(--accent);color:var(--accent-fg)}
   <div class="heard" id="heard"></div>
   <p class="lbl">期限の日</p>
   <div class="quick" id="qDay">
-    <button data-d="0">今日</button><button data-d="1">明日</button><button data-d="2">あさって</button><button data-d="fri">今週金曜</button><button data-d="7">1週間後</button><button data-d="none">日付なし</button>
+    <button data-d="0">今日</button><button data-d="w1">次の出勤日</button><button data-d="w2">その次の出勤日</button><button data-d="fri">今週金曜</button><button data-d="w5">1週間後</button><button data-d="none">日付なし</button>
   </div>
   <div class="row"><input type="date" id="fD" aria-label="期限の日"><input type="time" id="fH" aria-label="期限の時刻（なくてもよい）"></div>
+  <div class="wk" id="wk" hidden><span id="wkT"></span><button id="wkFri">前の金曜にする</button><button id="wkMon">次の月曜にする</button></div>
   <p class="lbl">くりかえし</p>
   <select id="fP" aria-label="くりかえし">
     <option value="none">しない（1回だけ）</option>
@@ -127,7 +132,7 @@ nav button.on{background:var(--accent);color:var(--accent-fg)}
   <select id="fR" aria-label="知らせるとき">
     <option value="none">知らせない</option>
     <option value="morning" selected>当日の朝 8:00</option>
-    <option value="prev">前の日の 16:00</option>
+    <option value="prev">前の出勤日の 16:00</option>
     <option value="60">期限の1時間前（時刻を入れたとき）</option>
     <option value="15">期限の15分前（時刻を入れたとき）</option>
     <option value="0">期限の時刻ちょうど</option>
@@ -211,7 +216,7 @@ function remindAt(it){
   if (!it.d || it.r === "none") return null;
   const d = parseYmd(it.d);
   if (it.r === "morning"){ d.setHours(8,0,0,0); return d; }
-  if (it.r === "prev"){ const x = addDays(d,-1); x.setHours(16,0,0,0); return x; }
+  if (it.r === "prev"){ let x = addDays(d,-1); while (x.getDay()===0 || x.getDay()===6) x = addDays(x,-1); x.setHours(16,0,0,0); return x; }
   const due = dueAt(it); if (!due) return null;
   return new Date(due.getTime() - Number(it.r)*60000);
 }
@@ -346,23 +351,37 @@ function setTab(t){
 document.querySelector("nav").onclick = e => { const b = e.target.closest("button[data-t]"); if (!b) return; if (b.dataset.t==="add") openEdit(null); else setTab(b.dataset.t); };
 $("toAdd").onclick = () => openEdit(null);
 $("cancelBtn").onclick = () => setTab("list");
+/* 土日は休み：「次の出勤日」などは土日を飛ばして数える */
+const isOff = d => d.getDay()===0 || d.getDay()===6;
+function workDays(n){ let d = today0(), k = 0; while (k < n){ d = addDays(d,1); if (!isOff(d)) k++; } return d; }
+function quickDate(key){
+  const base = today0();
+  if (key === "0") return base;
+  if (key === "fri") return addDays(base, (5 - base.getDay() + 7) % 7);
+  if (key[0] === "w") return workDays(+key.slice(1));
+  return null;
+}
+const mdw = d => `${d.getMonth()+1}/${d.getDate()}(${WD[d.getDay()]})`;
 function markQuick(){
-  const v = $("fD").value, n = v ? dayDiff(v) : null;
+  const v = $("fD").value;
   document.querySelectorAll("#qDay button").forEach(b=>{
-    const d = b.dataset.d; let on = false;
-    if (d === "none") on = !v; else if (d === "fri") on = v && parseYmd(v).getDay()===5 && n>=0 && n<7 && !(["0","1","2"].some(x=>+x===n));
-    else on = v && n === +d;
-    b.classList.toggle("on", !!on);
+    const k = b.dataset.d, q = quickDate(k);
+    if (!b.dataset.name) b.dataset.name = b.textContent;
+    b.innerHTML = esc(b.dataset.name) + (q ? `<small>${mdw(q)}</small>` : "");
+    b.classList.toggle("on", k === "none" ? !v : !!(q && v === ymd(q)));
   });
+  const w = v ? parseYmd(v) : null;
+  $("wk").hidden = !(w && isOff(w));
+  if (w && isOff(w)) $("wkT").textContent = `⚠ ${mdw(w)} は休みの日です`;
 }
 $("qDay").onclick = e => {
   const b = e.target.closest("button[data-d]"); if (!b) return;
-  const d = b.dataset.d, base = today0();
-  if (d === "none") $("fD").value = "";
-  else if (d === "fri") $("fD").value = ymd(addDays(base, (5 - base.getDay() + 7) % 7));
-  else $("fD").value = ymd(addDays(base, +d));
+  const q = quickDate(b.dataset.d);
+  $("fD").value = q ? ymd(q) : "";
   markQuick();
 };
+$("wkFri").onclick = () => { let d = parseYmd($("fD").value); while (isOff(d)) d = addDays(d,-1); $("fD").value = ymd(d); markQuick(); };
+$("wkMon").onclick = () => { let d = parseYmd($("fD").value); while (isOff(d)) d = addDays(d,1); $("fD").value = ymd(d); markQuick(); };
 $("fD").onchange = markQuick;
 function openEdit(id){
   EDIT = id ? ITEMS.find(i=>i.id===id) : null;
