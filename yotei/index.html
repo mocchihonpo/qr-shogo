@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1d2140">
+<title>やること・納期</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+/* スマホ用：やること・納期を入れておき、期限ごとに並べて、声と音で知らせる */
+:root{
+  --bg:#1d2140; --panel:#272c55; --panel2:#30366a; --fg:#eef0f8; --muted:#c3c7e6; --line:#434a8a;
+  --accent:#ff8a65; --accent-fg:#2b0f05; --ok:#2f6f4b; --warn:#c77700; --ng:#e5392f; --idle:#3a3f66;
+  --f-ui:"BIZ UDPGothic","Hiragino Sans","Noto Sans JP",system-ui,sans-serif;
+  --f-code:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:var(--f-ui);font-size:15px;line-height:1.5}
+body{display:flex;flex-direction:column;overflow:hidden;padding-top:env(safe-area-inset-top,0px);box-shadow:inset 0 6px 0 var(--accent)}
+button,input,select,textarea{font:inherit;color:var(--fg)}
+button{font-weight:700;background:var(--panel);border:1.5px solid var(--line);border-radius:10px;padding:8px 12px;cursor:pointer;min-height:42px}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,a:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+input,select,textarea{background:var(--panel2);border:1.5px solid var(--line);border-radius:10px;padding:8px 10px;min-height:44px;width:100%}
+textarea{min-height:64px;resize:vertical}
+[hidden]{display:none!important}
+.top{display:flex;align-items:center;gap:8px;padding:8px max(12px,env(safe-area-inset-right,0px)) 6px max(12px,env(safe-area-inset-left,0px))}
+.top h1{font-size:16px;margin:0;flex:1;color:var(--accent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.top .home{flex:0 0 auto;display:flex;align-items:center;gap:4px;min-height:36px;padding:0 10px;border-radius:999px;background:rgba(255,255,255,.12);border:1.5px solid rgba(255,255,255,.25);color:inherit;text-decoration:none;font-weight:700;font-size:13px;white-space:nowrap}
+.badge{font:700 12px var(--f-ui);padding:4px 10px;border-radius:999px;background:var(--idle);white-space:nowrap}
+.badge.ng{background:var(--ng)}.badge.warn{background:var(--warn)}.badge.ok{background:var(--ok)}
+main{flex:1;min-height:0;overflow-y:auto;padding:0 max(12px,env(safe-area-inset-right,0px)) 16px max(12px,env(safe-area-inset-left,0px))}
+.view{display:flex;flex-direction:column;gap:10px}
+.row{display:flex;gap:8px}.row>*{flex:1;min-width:0}
+.lbl{font-size:12px;color:var(--muted);margin:2px 0 -6px}
+.note{font-size:13px;color:var(--muted);margin:0}
+.big{min-height:54px;font-size:17px;background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+.speak{min-height:50px;font-size:16px}
+/* 今日のまとめ */
+.today{border-radius:14px;padding:10px 12px;background:var(--panel);border:1.5px solid var(--line)}
+.today b{font-size:18px}
+.today .n{font:700 26px var(--f-code)}
+.sum{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:6px}
+.sum div{background:var(--panel2);border-radius:10px;padding:6px;text-align:center;font-size:12px;color:var(--muted)}
+.sum div b{display:block;font:700 22px var(--f-code);color:var(--fg)}
+.sum div.over b{color:#ff6b61}
+/* 一覧 */
+h2{font-size:14px;margin:8px 0 -2px;color:var(--muted);display:flex;align-items:center;gap:6px}
+h2.over{color:#ff6b61}
+.items{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.items li{display:flex;gap:10px;align-items:flex-start;background:var(--panel);border:1.5px solid var(--line);border-radius:12px;padding:8px 10px}
+.items li.over{border-color:#ff6b61}
+.items li.today{border-color:var(--accent)}
+.items li.done{opacity:.5}
+.items li.done .t{text-decoration:line-through}
+.ck{flex:0 0 40px;height:40px;min-height:40px;border-radius:10px;border:2px solid var(--line);background:transparent;padding:0;font-size:20px}
+.items li.done .ck{background:var(--ok);border-color:var(--ok);color:#fff}
+.items .b{flex:1;min-width:0;cursor:pointer}
+.items .t{font-size:16px;font-weight:700;word-break:break-word}
+.items .s{font-size:13px;color:var(--muted)}
+.items .d{font:700 13px var(--f-code);color:var(--accent)}
+.items li.over .d{color:#ff6b61}
+.tag{display:inline-block;font-size:11px;font-weight:700;border-radius:999px;padding:0 8px;background:var(--idle);margin-left:4px;vertical-align:1px}
+.empty{color:var(--muted);text-align:center;padding:18px 8px;font-size:14px}
+/* 入力 */
+.quick{display:flex;flex-wrap:wrap;gap:6px}
+.quick button{min-height:36px;padding:2px 12px;font-size:13px}
+.quick button.on{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+.mic{flex:0 0 54px!important;font-size:22px;padding:0}
+.mic.on{background:var(--ng);border-color:var(--ng);animation:pulse 1s infinite}
+@keyframes pulse{50%{opacity:.6}}
+.heard{font-size:13px;color:var(--muted);min-height:1.2em}
+.msg{border-radius:10px;padding:8px 12px;background:var(--panel);font-size:13px}
+.msg.ok{background:#1d3a2a}.msg.ng{background:#4a1d1a}
+/* アラーム */
+.alarm{position:fixed;inset:0;background:rgba(10,12,30,.94);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;z-index:20;text-align:center}
+.alarm .t{font-size:26px;font-weight:700;color:var(--accent);word-break:break-word}
+.alarm .s{font-size:15px;color:var(--muted)}
+.alarm .row{width:100%;max-width:420px}
+.alarm button{min-height:60px;font-size:18px}
+nav{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding:6px max(12px,env(safe-area-inset-right,0px)) max(8px,env(safe-area-inset-bottom,0px)) max(12px,env(safe-area-inset-left,0px));background:var(--panel);border-top:1.5px solid var(--line)}
+nav button{min-height:46px;background:transparent;border-color:transparent}
+nav button.on{background:var(--accent);color:var(--accent-fg)}
+.chk{display:flex;align-items:center;gap:8px;font-size:14px}
+.chk input{width:22px;height:22px;min-height:0}
+</style>
+</head>
+<body>
+<div class="top"><a class="home" href="../" aria-label="倉庫アプリ（入口）へ戻る">🏠 入口</a><h1>やること・納期</h1><span id="badge" class="badge">0件</span></div>
+<main>
+<!-- ============ 一覧 ============ -->
+<section id="v-list" class="view">
+  <div class="today">
+    <div><b id="todayDate"></b></div>
+    <div class="sum">
+      <div class="over">期限切れ<b id="nOver">0</b></div>
+      <div>今日まで<b id="nToday">0</b></div>
+      <div>1週間以内<b id="nWeek">0</b></div>
+    </div>
+  </div>
+  <button id="speakBtn" class="speak">🔊 今日のやることを聞く</button>
+  <button id="toAdd" class="big">＋ やること・納期を入れる</button>
+  <div id="listBox"></div>
+  <label class="chk"><input type="checkbox" id="showDone"> 済んだものも表示する</label>
+</section>
+
+<!-- ============ 入れる・直す ============ -->
+<section id="v-add" class="view" hidden>
+  <p class="lbl">やること（🎤を押して話すと、日にちも読み取ります）</p>
+  <div class="row">
+    <textarea id="fT" placeholder="例：坂本さんの KKE-B5729 納期回答　／　明日の10時に新庄へ電話"></textarea>
+    <button id="micBtn" class="mic" aria-label="声で入れる">🎤</button>
+  </div>
+  <div class="heard" id="heard"></div>
+  <p class="lbl">期限の日</p>
+  <div class="quick" id="qDay">
+    <button data-d="0">今日</button><button data-d="1">明日</button><button data-d="2">あさって</button><button data-d="fri">今週金曜</button><button data-d="7">1週間後</button><button data-d="none">日付なし</button>
+  </div>
+  <div class="row"><input type="date" id="fD" aria-label="期限の日"><input type="time" id="fH" aria-label="期限の時刻（なくてもよい）"></div>
+  <p class="lbl">知らせる</p>
+  <select id="fR" aria-label="知らせるとき">
+    <option value="none">知らせない</option>
+    <option value="morning" selected>当日の朝 8:00</option>
+    <option value="prev">前の日の 16:00</option>
+    <option value="60">期限の1時間前（時刻を入れたとき）</option>
+    <option value="15">期限の15分前（時刻を入れたとき）</option>
+    <option value="0">期限の時刻ちょうど</option>
+  </select>
+  <p class="lbl">相手・メモ（なくてもよい）</p>
+  <input id="fM" placeholder="例：坂本さん（112206）／オーダNo 3612" autocomplete="off">
+  <div class="row"><button id="saveBtn" class="big">入れる</button></div>
+  <div class="row"><button id="calBtn">📅 iPhoneのカレンダーにも入れる</button></div>
+  <div class="row"><button id="delBtn" hidden style="background:#4a1d1a;border-color:#7a2a24">消す</button><button id="cancelBtn">戻る</button></div>
+  <div id="addMsg" class="msg" hidden></div>
+  <p class="note">「カレンダーにも入れる」と、このページを閉じていてもiPhoneが知らせてくれます。</p>
+</section>
+
+<!-- ============ 設定 ============ -->
+<section id="v-set" class="view" hidden>
+  <label class="chk"><input type="checkbox" id="voiceOn" checked> 声で案内する</label>
+  <label class="chk"><input type="checkbox" id="beepOn" checked> アラームの音を鳴らす</label>
+  <label class="chk"><input type="checkbox" id="autoSpeak" checked> 開いたときに今日のやることを読み上げる（最初に画面をさわったとき）</label>
+  <div class="row"><button id="testAlarm">アラームを試す</button></div>
+  <h2>知らせ方について</h2>
+  <p class="note">このページを開いている間は、知らせる時刻になると音と声で知らせます。閉じているときに知らせてほしいものは、入れるときに「📅 iPhoneのカレンダーにも入れる」を押してください。</p>
+  <h2>控え（携帯を替えるとき）</h2>
+  <p class="note">やることは、この携帯のSafariの中にだけ入っています。プライベートのタブでは使わないでください。</p>
+  <div class="row"><button id="exportBtn">控えをコピー</button><button id="importBtn">控えから戻す</button></div>
+  <textarea id="ioBox" hidden placeholder="ここに控えを貼り付けて「戻す」"></textarea>
+  <div class="row"><button id="importGo" hidden>この控えで戻す</button></div>
+  <div id="setMsg" class="msg" hidden></div>
+</section>
+</main>
+<nav>
+  <button data-t="list" class="on">一覧</button>
+  <button data-t="add">入れる</button>
+  <button data-t="set">設定</button>
+</nav>
+
+<div class="alarm" id="alarm" hidden role="alertdialog" aria-live="assertive">
+  <div style="font-size:44px">⏰</div>
+  <div class="t" id="alT"></div>
+  <div class="s" id="alS"></div>
+  <div class="row"><button id="alDone" style="background:var(--ok);border-color:var(--ok)">✓ 済んだ</button></div>
+  <div class="row"><button id="alSnooze">10分後にもう一度</button><button id="alStop">止める</button></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s??"").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const load = (k, d) => { try{ const v = JSON.parse(localStorage.getItem(k)); return v ?? d; }catch(e){ return d; } };
+const save = (k, v) => { try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} };
+const p2 = n => String(n).padStart(2,"0");
+const WD = ["日","月","火","水","木","金","土"];
+
+let ITEMS = load("yotei.items", []);   // {id, t, d:"YYYY-MM-DD"|"", h:"HH:MM"|"", r, m, done:false, doneAt, fired:[]}
+let SET = load("yotei.set", {voice:true, beep:true, auto:true});
+let EDIT = null;
+const persist = () => save("yotei.items", ITEMS);
+const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+
+/* ---------- 日付 ---------- */
+const ymd = d => `${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}`;
+const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate()+n); return x; };
+const today0 = () => { const d = new Date(); d.setHours(0,0,0,0); return d; };
+const parseYmd = s => { const [y,m,d] = s.split("-").map(Number); return new Date(y, m-1, d); };
+function dayDiff(s){ return s ? Math.round((parseYmd(s) - today0())/86400000) : null; }
+function dayLabel(s){
+  if (!s) return "日付なし";
+  const n = dayDiff(s), d = parseYmd(s);
+  const md = `${d.getMonth()+1}/${d.getDate()}(${WD[d.getDay()]})`;
+  if (n === 0) return "今日 " + md; if (n === 1) return "明日 " + md; if (n === 2) return "あさって " + md;
+  if (n < 0) return `${md}　${-n}日過ぎ`;
+  return md;
+}
+function sayDay(s){
+  if (!s) return "";
+  const n = dayDiff(s), d = parseYmd(s);
+  if (n === 0) return "今日"; if (n === 1) return "明日"; if (n === 2) return "あさって";
+  return `${d.getMonth()+1}月${d.getDate()}日`;
+}
+function sayTime(h){ if (!h) return ""; const [H,M] = h.split(":").map(Number); return `${H}時` + (M ? `${M}分` : ""); }
+function dueAt(it){ if (!it.d) return null; const d = parseYmd(it.d); if (it.h){ const [h,m] = it.h.split(":").map(Number); d.setHours(h,m,0,0); } else d.setHours(17,0,0,0); return d; }
+function remindAt(it){
+  if (!it.d || it.r === "none") return null;
+  const d = parseYmd(it.d);
+  if (it.r === "morning"){ d.setHours(8,0,0,0); return d; }
+  if (it.r === "prev"){ const x = addDays(d,-1); x.setHours(16,0,0,0); return x; }
+  const due = dueAt(it); if (!due) return null;
+  return new Date(due.getTime() - Number(it.r)*60000);
+}
+
+/* ---------- 話した言葉から日にち・時刻を読む ---------- */
+function z2h(s){ return String(s).normalize("NFKC"); }
+const KN = {"一":1,"二":2,"三":3,"四":4,"五":5,"六":6,"七":7,"八":8,"九":9,"十":10,"十一":11,"十二":12};
+function parseSpoken(text){
+  let t = z2h(text), d = null, h = "";
+  const base = today0();
+  const take = re => { const m = t.match(re); if (m) t = t.replace(m[0], " "); return m; };
+  let m;
+  if ((m = take(/(今日|きょう)(まで|中に|の)?/))) d = base;
+  else if ((m = take(/(明後日|あさって)(まで|中に|の)?/))) d = addDays(base,2);
+  else if ((m = take(/(明日|あした|あす)(まで|中に|の)?/))) d = addDays(base,1);
+  else if ((m = take(/(\d{1,2})\s*[\/月]\s*(\d{1,2})\s*日?(まで|の)?/))){ d = new Date(base.getFullYear(), +m[1]-1, +m[2]); if (d < addDays(base,-30)) d.setFullYear(d.getFullYear()+1); }
+  else if ((m = take(/(来週|今週)?\s*([月火水木金土日])曜日?(まで|の)?/))){
+    const want = WD.indexOf(m[2]), off = (want + 6) % 7;            // 月曜=0 … 日曜=6
+    const thisMon = addDays(base, -((base.getDay() + 6) % 7));
+    if (m[1] === "来週") d = addDays(thisMon, 7 + off);
+    else if (m[1] === "今週") d = addDays(thisMon, off);
+    else d = addDays(base, (want - base.getDay() + 7) % 7);          // 次に来るその曜日（今日を含む）
+  }
+  else if ((m = take(/(\d{1,2})\s*日(まで|の|に)?/))){ d = new Date(base.getFullYear(), base.getMonth(), +m[1]); if (d < base) d.setMonth(d.getMonth()+1); }
+  else if ((m = take(/(\d+)\s*日後/))) d = addDays(base, +m[1]);
+  if ((m = take(/(午前|午後)?\s*(\d{1,2})\s*[時:：]\s*(半|(\d{1,2})\s*分?)?(まで|に|から)?/))){
+    let H = +m[2]; const M = m[3] === "半" ? 30 : (m[4] ? +m[4] : 0);
+    if (m[1] === "午後" && H < 12) H += 12;
+    if (!m[1] && H >= 1 && H <= 6) H += 12;   // 「3時」は昼の3時とみる
+    if (H < 24) h = `${p2(H)}:${p2(M)}`;
+  }
+  t = t.replace(/\s+/g," ").replace(/^[\sにのまでは、。]+|[\sに、。]+$/g,"").trim();
+  return {t, d: d ? ymd(d) : null, h};
+}
+
+/* ---------- 音・声 ---------- */
+let ac = null;
+function audio(){ if(!ac){ const C = window.AudioContext||window.webkitAudioContext; if(C) ac = new C(); } if(ac && ac.state==="suspended") ac.resume(); return ac; }
+function tone(f, st, d, type="sine", vol=.35){ const a = audio(); if(!a) return; const o = a.createOscillator(), g = a.createGain(); o.type = type; o.frequency.value = f; o.connect(g); g.connect(a.destination); const t = a.currentTime+st; g.gain.setValueAtTime(vol,t); g.gain.exponentialRampToValueAtTime(.001,t+d); o.start(t); o.stop(t+d+.02); }
+function chime(){ if (!SET.beep) return; [0,.25,.5].forEach((s,i)=>{ tone(880,s,.2,"square",.25); tone(1320,s+.1,.15,"square",.2); }); }
+function say(text){
+  if (!SET.voice || !("speechSynthesis" in window)) return;
+  try{ speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.lang = "ja-JP"; u.rate = 1.05;
+    const v = speechSynthesis.getVoices().find(x => /^ja/i.test(x.lang)); if (v) u.voice = v; speechSynthesis.speak(u); }catch(e){}
+}
+const vib = p => { try{ navigator.vibrate && navigator.vibrate(p); }catch(e){} };
+
+/* ---------- 一覧 ---------- */
+function bucket(it){
+  if (it.done) return "done";
+  const n = dayDiff(it.d);
+  if (n === null) return "none";
+  if (n < 0) return "over"; if (n === 0) return "today"; if (n === 1) return "tomorrow"; if (n <= 7) return "week"; return "later";
+}
+const BUCKETS = [["over","⚠ 期限切れ"],["today","今日まで"],["tomorrow","明日まで"],["week","1週間以内"],["later","それより先"],["none","日付なし"],["done","済んだもの"]];
+function sortKey(it){ const d = dueAt(it); return d ? d.getTime() : 9e15; }
+function render(){
+  const t = new Date();
+  $("todayDate").textContent = `${t.getMonth()+1}月${t.getDate()}日（${WD[t.getDay()]}）`;
+  const open = ITEMS.filter(i=>!i.done);
+  const c = k => open.filter(i=>bucket(i)===k).length;
+  $("nOver").textContent = c("over"); $("nToday").textContent = c("today"); $("nWeek").textContent = c("tomorrow") + c("week");
+  const b = $("badge"); b.textContent = `${open.length}件`; b.className = "badge " + (c("over") ? "ng" : c("today") ? "warn" : "ok");
+  const show = $("showDone").checked;
+  let html = "";
+  for (const [k, name] of BUCKETS){
+    if (k === "done" && !show) continue;
+    const rs = ITEMS.filter(i=>bucket(i)===k).sort((a,b)=> k==="done" ? (b.doneAt||0)-(a.doneAt||0) : sortKey(a)-sortKey(b));
+    if (!rs.length) continue;
+    html += `<h2 class="${k==="over"?"over":""}">${name}（${rs.length}）</h2><ul class="items">` + rs.map(it=>{
+      const r = remindAt(it);
+      const rtxt = r && !it.done ? `🔔 ${r.getMonth()+1}/${r.getDate()} ${p2(r.getHours())}:${p2(r.getMinutes())}` : "";
+      return `<li class="${k==="over"?"over":k==="today"?"today":""} ${it.done?"done":""}">
+        <button class="ck" data-ck="${it.id}" aria-label="${esc(it.t)}を${it.done?"まだ":"済んだ"}にする">${it.done?"✓":""}</button>
+        <div class="b" data-ed="${it.id}"><div class="t">${esc(it.t)}</div>
+        <div class="d">${esc(dayLabel(it.d))}${it.h?" "+esc(it.h)+"まで":""}</div>
+        ${(it.m||rtxt)?`<div class="s">${esc(it.m||"")}${it.m&&rtxt?"　":""}${rtxt}</div>`:""}</div></li>`;
+    }).join("") + `</ul>`;
+  }
+  $("listBox").innerHTML = html || `<p class="empty">まだ何も入っていません。<br>「＋ やること・納期を入れる」から入れてください。</p>`;
+}
+$("listBox").onclick = e => {
+  const ck = e.target.closest("[data-ck]");
+  if (ck){ const it = ITEMS.find(i=>i.id===ck.dataset.ck); if (!it) return;
+    it.done = !it.done; it.doneAt = it.done ? Date.now() : 0; persist(); render();
+    if (it.done){ tone(1320,0,.1); tone(1760,.1,.15); vib(40); say("済みにしました"); }
+    return; }
+  const ed = e.target.closest("[data-ed]"); if (ed) openEdit(ed.dataset.ed);
+};
+$("showDone").onchange = render;
+
+/* ---------- 読み上げ ---------- */
+function speakToday(){
+  audio();
+  const open = ITEMS.filter(i=>!i.done);
+  const over = open.filter(i=>bucket(i)==="over").sort((a,b)=>sortKey(a)-sortKey(b));
+  const tod = open.filter(i=>bucket(i)==="today").sort((a,b)=>sortKey(a)-sortKey(b));
+  const tom = open.filter(i=>bucket(i)==="tomorrow");
+  const parts = [];
+  if (!over.length && !tod.length) parts.push("今日までのやることはありません。");
+  if (over.length) parts.push(`期限が過ぎているものが${over.length}件あります。` + over.slice(0,5).map(i=>i.t).join("。") + "。");
+  if (tod.length) parts.push(`今日までのやることは${tod.length}件です。` + tod.slice(0,8).map(i=>(i.h ? sayTime(i.h)+"まで、" : "")+i.t).join("。") + "。");
+  if (tom.length) parts.push(`明日までのものが${tom.length}件あります。`);
+  say(parts.join(""));
+}
+$("speakBtn").onclick = speakToday;
+let autoDone = false;
+document.addEventListener("pointerdown", ()=>{ audio(); if (!autoDone && SET.auto){ autoDone = true; setTimeout(speakToday, 200); } }, {once:true});
+
+/* ---------- 入れる・直す ---------- */
+function setTab(t){
+  document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("on", b.dataset.t===t));
+  ["list","add","set"].forEach(x=> $("v-"+x).hidden = x!==t);
+  if (t === "list") render();
+}
+document.querySelector("nav").onclick = e => { const b = e.target.closest("button[data-t]"); if (!b) return; if (b.dataset.t==="add") openEdit(null); else setTab(b.dataset.t); };
+$("toAdd").onclick = () => openEdit(null);
+$("cancelBtn").onclick = () => setTab("list");
+function markQuick(){
+  const v = $("fD").value, n = v ? dayDiff(v) : null;
+  document.querySelectorAll("#qDay button").forEach(b=>{
+    const d = b.dataset.d; let on = false;
+    if (d === "none") on = !v; else if (d === "fri") on = v && parseYmd(v).getDay()===5 && n>=0 && n<7 && !(["0","1","2"].some(x=>+x===n));
+    else on = v && n === +d;
+    b.classList.toggle("on", !!on);
+  });
+}
+$("qDay").onclick = e => {
+  const b = e.target.closest("button[data-d]"); if (!b) return;
+  const d = b.dataset.d, base = today0();
+  if (d === "none") $("fD").value = "";
+  else if (d === "fri") $("fD").value = ymd(addDays(base, (5 - base.getDay() + 7) % 7));
+  else $("fD").value = ymd(addDays(base, +d));
+  markQuick();
+};
+$("fD").onchange = markQuick;
+function openEdit(id){
+  EDIT = id ? ITEMS.find(i=>i.id===id) : null;
+  $("fT").value = EDIT ? EDIT.t : ""; $("fD").value = EDIT ? EDIT.d : ymd(today0()); $("fH").value = EDIT ? EDIT.h : "";
+  $("fR").value = EDIT ? EDIT.r : "morning"; $("fM").value = EDIT ? EDIT.m : "";
+  $("saveBtn").textContent = EDIT ? "直す" : "入れる"; $("delBtn").hidden = !EDIT;
+  $("addMsg").hidden = true; $("heard").textContent = "";
+  markQuick(); setTab("add");
+  document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("on", b.dataset.t==="add"));
+}
+function readForm(){
+  return {t:$("fT").value.trim(), d:$("fD").value, h:$("fH").value, r:$("fR").value, m:$("fM").value.trim()};
+}
+$("saveBtn").onclick = () => {
+  const f = readForm();
+  if (!f.t){ msg("addMsg","やることを入れてください","ng"); return; }
+  if (EDIT){ Object.assign(EDIT, f, {fired:[]}); }
+  else ITEMS.push(Object.assign({id:newId(), done:false, doneAt:0, fired:[], at:Date.now()}, f));
+  persist(); tone(1320,0,.1); tone(1760,.1,.15);
+  say(`${f.d ? sayDay(f.d)+sayTime(f.h)+"まで、" : ""}${f.t}。入れました`);
+  setTab("list");
+};
+$("delBtn").onclick = () => {
+  if (!EDIT) return;
+  if ($("delBtn").dataset.sure !== "1"){ $("delBtn").dataset.sure = "1"; $("delBtn").textContent = "本当に消す"; setTimeout(()=>{ $("delBtn").dataset.sure = ""; $("delBtn").textContent = "消す"; }, 3000); return; }
+  ITEMS = ITEMS.filter(i=>i!==EDIT); persist(); $("delBtn").dataset.sure = ""; $("delBtn").textContent = "消す"; setTab("list");
+};
+function msg(id, t, cls){ const m = $(id); m.hidden = false; m.className = "msg " + (cls||""); m.textContent = t; }
+
+/* ---------- 声で入れる ---------- */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null, listening = false;
+$("micBtn").onclick = () => {
+  audio();
+  if (!SR){ msg("addMsg","この携帯では声の入力ボタンが使えません。キーボードのマイク（音声入力）で話してください","ng"); $("fT").focus(); return; }
+  if (listening){ rec && rec.stop(); return; }
+  rec = new SR(); rec.lang = "ja-JP"; rec.interimResults = true; rec.continuous = false;
+  let final = "";
+  rec.onresult = e => { let s = ""; for (const r of e.results){ s += r[0].transcript; if (r.isFinal) final = s; } $("heard").textContent = "聞こえた：" + s; };
+  rec.onend = () => {
+    listening = false; $("micBtn").classList.remove("on");
+    const text = final || $("heard").textContent.replace(/^聞こえた：/,"");
+    if (!text) return;
+    const p = parseSpoken(text);
+    $("fT").value = p.t || text;
+    if (p.d) $("fD").value = p.d;
+    if (p.h){ $("fH").value = p.h; if ($("fR").value === "morning") $("fR").value = "60"; }
+    markQuick();
+    $("heard").textContent = `聞こえた：${text}` + (p.d ? `　→ 期限 ${dayLabel(p.d)}${p.h?" "+p.h:""}` : "");
+  };
+  rec.onerror = e => { listening = false; $("micBtn").classList.remove("on"); if (e.error !== "no-speech" && e.error !== "aborted") msg("addMsg","声を聞き取れませんでした（"+e.error+"）","ng"); };
+  try{ rec.start(); listening = true; $("micBtn").classList.add("on"); $("heard").textContent = "話してください…"; }catch(e){}
+};
+
+/* ---------- iPhoneのカレンダーへ（.ics） ---------- */
+function icsDate(d){ return `${d.getFullYear()}${p2(d.getMonth()+1)}${p2(d.getDate())}T${p2(d.getHours())}${p2(d.getMinutes())}00`; }
+function icsEsc(s){ return String(s||"").replace(/\\/g,"\\\\").replace(/;/g,"\\;").replace(/,/g,"\\,").replace(/\n/g,"\\n"); }
+$("calBtn").onclick = () => {
+  const f = readForm();
+  if (!f.t || !f.d){ msg("addMsg","やることと期限の日を入れてください","ng"); return; }
+  const it = Object.assign({}, f);
+  const start = f.h ? dueAt(it) : parseYmd(f.d);
+  const r = remindAt(it);
+  const lines = ["BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//souko//yotei//JA","BEGIN:VEVENT",
+    "UID:"+newId()+"@souko-yotei","DTSTAMP:"+icsDate(new Date()),
+    f.h ? "DTSTART:"+icsDate(start) : "DTSTART;VALUE=DATE:"+f.d.replace(/-/g,""),
+    f.h ? "DTEND:"+icsDate(new Date(start.getTime()+30*60000)) : "DTEND;VALUE=DATE:"+ymd(addDays(start,1)).replace(/-/g,""),
+    "SUMMARY:"+icsEsc("【納期】"+f.t), "DESCRIPTION:"+icsEsc(f.m||"")];
+  if (r){
+    const mins = Math.round((r.getTime() - (f.h ? start.getTime() : parseYmd(f.d).getTime()))/60000);
+    lines.push("BEGIN:VALARM","ACTION:DISPLAY","DESCRIPTION:"+icsEsc(f.t), "TRIGGER:"+(mins<0?"-":"")+"PT"+Math.abs(mins)+"M","END:VALARM");
+  }
+  lines.push("END:VEVENT","END:VCALENDAR");
+  const blob = new Blob([lines.join("\r\n")], {type:"text/calendar;charset=utf-8"});
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "yotei.ics";
+  document.body.append(a); a.click(); a.remove();
+  msg("addMsg","カレンダーの画面が出たら「追加」を押してください。出ないときは、ダウンロードの中の yotei.ics を開きます","ok");
+};
+
+/* ---------- アラーム（このページを開いている間） ---------- */
+let ringing = null, ringTimer = null;
+function check(){
+  if (ringing) return;
+  const now = Date.now();
+  for (const it of ITEMS){
+    if (it.done) continue;
+    const r = remindAt(it); if (!r) continue;
+    const key = String(r.getTime());
+    const snooze = it.snooze || 0;
+    const when = Math.max(r.getTime(), snooze);
+    if (now >= when && now - when < 6*3600*1000 && !(it.fired||[]).includes(key + "|" + snooze)){
+      (it.fired = it.fired || []).push(key + "|" + snooze); persist(); ring(it); return;
+    }
+  }
+}
+function ring(it){
+  ringing = it;
+  $("alT").textContent = it.t;
+  $("alS").textContent = `${dayLabel(it.d)}${it.h?" "+it.h:""} まで` + (it.m ? "　" + it.m : "");
+  $("alarm").hidden = false;
+  const once = () => { chime(); vib([300,150,300]); };
+  once(); setTimeout(()=> say(`お知らせです。${sayDay(it.d)}${sayTime(it.h)}まで。${it.t}`), 900);
+  let n = 0; clearInterval(ringTimer); ringTimer = setInterval(()=>{ if (++n > 5){ clearInterval(ringTimer); return; } once(); }, 8000);
+}
+function stopRing(){ clearInterval(ringTimer); $("alarm").hidden = true; ringing = null; try{ speechSynthesis.cancel(); }catch(e){} render(); }
+$("alStop").onclick = stopRing;
+$("alDone").onclick = () => { if (ringing){ ringing.done = true; ringing.doneAt = Date.now(); persist(); } stopRing(); say("済みにしました"); };
+$("alSnooze").onclick = () => { if (ringing){ ringing.snooze = Date.now() + 10*60000; persist(); } stopRing(); say("10分後に、もう一度知らせます"); };
+setInterval(check, 15000);
+document.addEventListener("visibilitychange", ()=>{ if (!document.hidden){ render(); check(); } });
+
+/* ---------- 設定 ---------- */
+$("voiceOn").checked = SET.voice !== false; $("beepOn").checked = SET.beep !== false; $("autoSpeak").checked = SET.auto !== false;
+["voiceOn","beepOn","autoSpeak"].forEach(id => $(id).onchange = () => { SET = {voice:$("voiceOn").checked, beep:$("beepOn").checked, auto:$("autoSpeak").checked}; save("yotei.set", SET); });
+$("testAlarm").onclick = () => { audio(); ring({id:"test", t:"アラームのお試しです", d:ymd(today0()), h:"", m:"", r:"none"}); };
+$("exportBtn").onclick = async () => {
+  const t = JSON.stringify({v:1, items:ITEMS});
+  try{ await navigator.clipboard.writeText(t); msg("setMsg", `控えをコピーしました（${ITEMS.length}件）。転送ボックスの「メモを送る」に貼って送っておくと安心です`, "ok"); }
+  catch(e){ $("ioBox").hidden = false; $("ioBox").value = t; $("ioBox").select(); msg("setMsg","下の文字を全部コピーしてください","ng"); }
+};
+$("importBtn").onclick = () => { $("ioBox").hidden = false; $("importGo").hidden = false; $("ioBox").value = ""; $("ioBox").focus(); };
+$("importGo").onclick = () => {
+  try{ const j = JSON.parse($("ioBox").value); if (!Array.isArray(j.items)) throw 0;
+    const have = new Set(ITEMS.map(i=>i.id)); let n = 0;
+    for (const it of j.items) if (!have.has(it.id)){ ITEMS.push(it); n++; }
+    persist(); msg("setMsg", `${n}件を戻しました`, "ok"); $("ioBox").hidden = true; $("importGo").hidden = true; render();
+  }catch(e){ msg("setMsg","控えの形がちがいます。コピーした文字を全部貼ってください","ng"); }
+};
+
+render(); check();
+</script>
+</body>
+</html>
