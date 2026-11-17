@@ -81,6 +81,10 @@ h2{font-size:14px;margin:6px 0 0;color:var(--muted)}
 .scope{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
 .scope button{min-height:38px;padding:0 4px;font-size:13px}
 .scope button.on{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+/* 一覧の日にち切り替え */
+.days{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px}
+.days button{flex:0 0 auto;min-height:38px;padding:2px 12px;font-size:13px;white-space:nowrap}
+.days button.on{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
 /* 移送一覧 */
 .list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
 .list li{display:flex;gap:10px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:13px}
@@ -131,6 +135,7 @@ nav button.on{background:var(--accent);color:var(--accent-fg)}
   <!-- 移送一覧 -->
   <section class="view" id="v-list" hidden>
     <div class="scope" role="group" aria-label="照合する品物"><button data-sc="iso">移送</button><button data-sc="tonami">トナミ便</button><button data-sc="hokan">保管</button><button data-sc="all">全部</button></div>
+    <div class="days" id="dayChips" role="group" aria-label="出荷リストの日"></div>
     <p class="note" id="listInfo"></p>
     <div class="sum"><div><span class="scName">移送</span><b id="nAll">0</b></div><div>届いた<b id="nGot">0</b></div><div>案内した<b id="nSent">0</b></div><div>まだ来ない<b id="nLeft">0</b></div></div>
     <p class="note">箱を読むと、ここにチェックが付きます。まだ来ていない品物が上に並びます。</p>
@@ -428,14 +433,23 @@ document.addEventListener("click", e=>{
 });
 
 /* ---- 移送一覧 ---- */
+let LISTDAY = load("iso.listday", "latest");   // "latest"＝いちばん新しい出荷リストの日だけ／"all"／日付
+const dayOf = r => String(r["出荷日"]||"").replace(/\.0$/,"");
+const dayTxt = d => d.length === 8 ? `${+d.slice(4,6)}/${+d.slice(6,8)}` : d;
 function renderList(){
-  const iso = (DATA.shukka||[]).filter(inScope);
+  const allIso = (DATA.shukka||[]).filter(inScope);
+  const allDays = [...new Set((DATA.shukka||[]).map(dayOf).filter(Boolean))].sort().reverse();
+  const latest = allDays[0] || "";
+  if (LISTDAY !== "latest" && LISTDAY !== "all" && !allDays.includes(LISTDAY)) LISTDAY = "latest";
+  const want = LISTDAY === "latest" ? latest : LISTDAY;
+  $("dayChips").innerHTML = allDays.map((d,i)=>`<button data-day="${i===0?"latest":d}" class="${(i===0 && LISTDAY==="latest") || LISTDAY===d ? "on" : ""}">${i===0 ? "最新 " : ""}${dayTxt(d)}（${allIso.filter(r=>dayOf(r)===d).length}）</button>`).join("") + (allDays.length > 1 ? `<button data-day="all" class="${LISTDAY==="all"?"on":""}">全部の日（${allIso.length}）</button>` : "");
+  const iso = LISTDAY === "all" ? allIso : allIso.filter(r => dayOf(r) === want);
   // 読んだ品物（案内カードに入ったもの）＝届いた。送ったカードのもの＝案内した。後ろの01・011の違いは無視する
   const got = new Set(), sent = new Set();
   for (const c of CARDS.values()) for (const x of c.items){ const k = mbase(x.code) || norm(x.code); got.add(k); if (c.sent) sent.add(k); }
   const key = r => mbase(r["マシンNo"]) || norm(r["マシンNo"]);
   const days = [...new Set(iso.map(r=>String(r["出荷日"]||"")))].sort();
-  $("listInfo").textContent = DATA.at ? `出荷リスト ${days.join("・")} の${SCOPE==="all"?"全部":scName()+"分"}（読み込み ${DATA.at}）` : "設定タブで「シートから読み込む」を押してください";
+  $("listInfo").textContent = DATA.at ? `出荷リスト ${days.map(dayTxt).join("・")} の${SCOPE==="all"?"全部":scName()+"分"}（読み込み ${DATA.at}）` : "設定タブで「シートから読み込む」を押してください";
   $("nAll").textContent = iso.length;
   $("nGot").textContent = iso.filter(r=>got.has(key(r))).length;
   $("nSent").textContent = iso.filter(r=>sent.has(key(r))).length;
@@ -446,6 +460,8 @@ function renderList(){
     return `<li class="${g ? "done" : ""}"><span class="ck">${g ? "✓" : ""}</span><span style="min-width:0;flex:1"><span class="m">${esc(r["マシンNo"])}</span>　${esc(r["形名"]||"")} ×${esc(r["数量"])}${g ? `<span class="tag">${s2 ? "案内済" : "届いた"}</span>` : ""}<div class="s">${esc([whoLine(tanN(r["担当者"])), r["得意先名"], r["仕分処理"]].filter(Boolean).join("　"))}</div></span></li>`;
   }).join("") || `<li class="note">${scName()}の品物はありません</li>`;
 }
+
+$("dayChips").onclick = e => { const b = e.target.closest("button[data-day]"); if (!b) return; LISTDAY = b.dataset.day; save("iso.listday", LISTDAY); renderList(); };
 
 /* ---- 「担当者不明」の案内を、今のデータで調べ直して担当者ごとの案内へ移す ---- */
 function resolveUnknown(){
@@ -509,7 +525,9 @@ function say(text){
 const sayName = tan => { if (!tan) return "担当者不明"; const p = PEOPLE.get(tan); return p && p.name ? san(p.name) : "担当 " + String(tan).split("").join(" "); };
 function leftCount(){
   const got = new Set(); for (const c of CARDS.values()) for (const x of c.items) got.add(mbase(x.code) || norm(x.code));
-  return (DATA.shukka||[]).filter(inScope).filter(r => !got.has(mbase(r["マシンNo"]) || norm(r["マシンNo"]))).length;
+  const allDays = [...new Set((DATA.shukka||[]).map(dayOf).filter(Boolean))].sort().reverse();
+  const want = LISTDAY === "latest" ? allDays[0] : LISTDAY;
+  return (DATA.shukka||[]).filter(inScope).filter(r => LISTDAY === "all" || dayOf(r) === want).filter(r => !got.has(mbase(r["マシンNo"]) || norm(r["マシンNo"]))).length;
 }
 function beep(k){ if (k==="ok"){ tone(1320,0,.12); tone(1760,.12,.18); } else if (k==="dup"){ tone(880,0,.15,"triangle"); } else { tone(220,0,.35,"square",.2); } }
 const vib = p => { try{ navigator.vibrate && navigator.vibrate(p); }catch(e){} };
