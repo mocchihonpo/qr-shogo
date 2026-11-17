@@ -23,18 +23,24 @@ a.app span{display:block;font-size:13px;color:var(--muted);margin-top:2px}
 details{max-width:560px;margin-top:20px;color:var(--muted);font-size:13px}
 details a{color:var(--muted)}
 details li{margin:6px 0}
+.head{display:flex;align-items:center;gap:10px;max-width:560px;margin:6px 0 14px}
+.head h1{margin:0;flex:1}
+.vbtn{font:700 13px inherit;color:var(--fg);background:var(--panel);border:1.5px solid var(--line);border-radius:999px;padding:6px 12px;min-height:38px;cursor:pointer}
+.vbtn[aria-pressed="false"]{opacity:.6}
+a.app .no{flex:0 0 auto;font-size:13px;font-weight:700;color:var(--muted);width:1.2em;text-align:center}
+a.app.going{outline:3px solid var(--c);outline-offset:2px}
 </style>
 </head>
 <body>
-<h1>倉庫アプリ</h1>
+<div class="head"><h1>倉庫アプリ</h1><button id="voice" class="vbtn" aria-pressed="true">🔊 声の案内 ON</button></div>
 <div class="apps">
-  <a class="app" style="--c:#ff8a65" href="yotei/"><span class="ic">⏰</span><div><b>やること・納期</b><span>やることと納期を入れておくと、声と音で知らせる</span></div></a>
-  <a class="app" style="--c:#2f6f4b" href="nyuka/"><span class="ic">📦</span><div><b>入荷品カメラ</b><span>入荷した品物の写真を撮って、入荷シートへ</span></div></a>
-  <a class="app" style="--c:#f2c94c" href="iso/"><span class="ic">🚚</span><div><b>移送品あんない</b><span>出荷リストと照合（移送・トナミ便・保管・全部）。担当者へTeamsで案内</span></div></a>
-  <a class="app" style="--c:#8a5cc7" href="barcode/"><span class="ic">🔍</span><div><b>バーコード探索ブザー</b><span>探している品物のバーコードを鳴らして見つける</span></div></a>
-  <a class="app" style="--c:#c77700" href="tana/"><span class="ic">🗄</span><div><b>担当棚カメラ</b><span>担当者の棚にある品物を写真・バーコードで記録</span></div></a>
-  <a class="app" style="--c:#4fb3a9" href="https://claude.ai/artifact/6AtiMdtv7oiYauFoNcgyDe"><span class="ic">🏭</span><div><b>問屋町倉庫 3D配置図</b><span>倉庫の棚・パレットの配置を3Dで見る（パソコン向け）</span></div></a>
-  <a class="app" style="--c:#3d7fc7" href="okuru/"><span class="ic">📤</span><div><b>転送ボックス</b><span>携帯とGoogleドライブ・パソコンの間でファイルを送る</span></div></a>
+  <a class="app" style="--c:#ff8a65" href="yotei/" data-say="やること・納期です。今日のやることと納期を確かめます"><span class="no">1</span><span class="ic">⏰</span><div><b>やること・納期</b><span>朝いちばんに。今日のやることと納期を、声と音で知らせる</span></div></a>
+  <a class="app" style="--c:#2f6f4b" href="nyuka/" data-say="入荷品カメラです。届いた品物の写真を撮って送ります"><span class="no">2</span><span class="ic">📦</span><div><b>入荷品カメラ</b><span>品物が届いたら。写真を撮って「納入品」フォルダへ送る</span></div></a>
+  <a class="app" style="--c:#f2c94c" href="iso/" data-say="移送品あんないです。出荷リストと照合して、担当者に案内します"><span class="no">3</span><span class="ic">🚚</span><div><b>移送品あんない</b><span>出荷リストと照合（移送・トナミ便・保管・全部）。担当者へTeamsで案内</span></div></a>
+  <a class="app" style="--c:#c77700" href="tana/" data-say="担当棚カメラです。担当者の棚にある品物を記録します"><span class="no">4</span><span class="ic">🗄</span><div><b>担当棚カメラ</b><span>棚に置いたら。担当者の棚の品物を写真・バーコードで記録</span></div></a>
+  <a class="app" style="--c:#8a5cc7" href="barcode/" data-say="バーコード探索ブザーです。探している品物を音で見つけます"><span class="no">5</span><span class="ic">🔍</span><div><b>バーコード探索ブザー</b><span>探すとき。探している品物のバーコードで音が鳴る</span></div></a>
+  <a class="app" style="--c:#3d7fc7" href="okuru/" data-say="転送ボックスです。写真やメモを、ドライブとパソコンに送ります"><span class="no">6</span><span class="ic">📤</span><div><b>転送ボックス</b><span>送るとき。写真・メモを携帯とドライブ・パソコンの間でやりとり</span></div></a>
+  <a class="app" style="--c:#4fb3a9" href="https://claude.ai/artifact/6AtiMdtv7oiYauFoNcgyDe" data-say="問屋町倉庫の3D配置図です。パソコンで見るのがおすすめです"><span class="no">7</span><span class="ic">🏭</span><div><b>問屋町倉庫 3D配置図</b><span>倉庫の棚・パレットの配置を3Dで見る（パソコン向け）</span></div></a>
 </div>
 <details>
   <summary>使わなくなったアプリ</summary>
@@ -44,5 +50,31 @@ details li{margin:6px 0}
     <li><a href="katamei/">形名コード照合</a>：311-4172 物件用</li>
   </ul>
 </details>
+<script>
+/* 声の案内：アプリを押すと名前と使い道を読み上げてから開く（OFFにするとすぐ開く） */
+const vb = document.getElementById("voice");
+let on = true; try{ on = localStorage.getItem("souko.voice") !== "0"; }catch(e){}
+const paint = () => { vb.setAttribute("aria-pressed", on); vb.textContent = on ? "🔊 声の案内 ON" : "🔇 声の案内 OFF"; };
+paint();
+vb.onclick = () => { on = !on; try{ localStorage.setItem("souko.voice", on ? "1" : "0"); }catch(e){} paint(); if (on) speak("声の案内をオンにしました"); };
+function speak(text, done){
+  if (!("speechSynthesis" in window)){ done && done(); return; }
+  try{
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text); u.lang = "ja-JP"; u.rate = 1.15;
+    const v = speechSynthesis.getVoices().find(x => /^ja/i.test(x.lang)); if (v) u.voice = v;
+    let fired = false; const go = () => { if (!fired){ fired = true; done && done(); } };
+    u.onend = go; u.onerror = go; setTimeout(go, 4500);
+    speechSynthesis.speak(u);
+  }catch(e){ done && done(); }
+}
+document.querySelectorAll("a.app").forEach(a => a.addEventListener("click", e => {
+  if (!on) return;
+  e.preventDefault();
+  document.querySelectorAll("a.app.going").forEach(x=>x.classList.remove("going")); a.classList.add("going");
+  speak(a.dataset.say, () => { location.href = a.href; });
+}));
+window.addEventListener("pageshow", () => document.querySelectorAll("a.app.going").forEach(x=>x.classList.remove("going")));
+</script>
 </body>
 </html>
