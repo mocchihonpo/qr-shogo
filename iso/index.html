@@ -77,6 +77,10 @@ h2{font-size:14px;margin:6px 0 0;color:var(--muted)}
 .send button{flex:1;background:var(--teams);border-color:var(--teams);color:#fff;min-height:46px;font-size:14px}
 .sentmark{font-size:12px;font-weight:700;background:var(--ok);border-radius:999px;padding:2px 10px;align-self:flex-start}
 .empty{color:var(--muted);text-align:center;padding:16px 8px;font-size:14px}
+/* 照合する品物の範囲 */
+.scope{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.scope button{min-height:38px;padding:0 4px;font-size:13px}
+.scope button.on{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
 /* 移送一覧 */
 .list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
 .list li{display:flex;gap:10px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:13px}
@@ -101,6 +105,7 @@ nav button.on{background:var(--accent);color:var(--accent-fg)}
 <main>
   <!-- 読む → 案内カード -->
   <section class="view" id="v-scan">
+    <div class="scope" role="group" aria-label="照合する品物"><button data-sc="iso">移送</button><button data-sc="tonami">トナミ便</button><button data-sc="hokan">保管</button><button data-sc="all">全部</button></div>
     <div class="cam" id="cam">
       <video id="video" playsinline muted></video>
       <div class="frame"></div>
@@ -122,8 +127,9 @@ nav button.on{background:var(--accent);color:var(--accent-fg)}
 
   <!-- 移送一覧 -->
   <section class="view" id="v-list" hidden>
+    <div class="scope" role="group" aria-label="照合する品物"><button data-sc="iso">移送</button><button data-sc="tonami">トナミ便</button><button data-sc="hokan">保管</button><button data-sc="all">全部</button></div>
     <p class="note" id="listInfo"></p>
-    <div class="sum"><div>移送<b id="nAll">0</b></div><div>届いた<b id="nGot">0</b></div><div>案内した<b id="nSent">0</b></div><div>まだ来ない<b id="nLeft">0</b></div></div>
+    <div class="sum"><div><span class="scName">移送</span><b id="nAll">0</b></div><div>届いた<b id="nGot">0</b></div><div>案内した<b id="nSent">0</b></div><div>まだ来ない<b id="nLeft">0</b></div></div>
     <p class="note">箱を読むと、ここにチェックが付きます。まだ来ていない品物が上に並びます。</p>
     <ul class="list" id="isoList"></ul>
   </section>
@@ -161,7 +167,7 @@ nav button.on{background:var(--accent);color:var(--accent-fg)}
 </main>
 <nav>
   <button data-tab="scan" class="on">読む・送る</button>
-  <button data-tab="list">移送一覧</button>
+  <button data-tab="list">一覧</button>
   <button data-tab="set">設定</button>
 </nav>
 <div class="zoom" id="zoom" hidden><img alt="拡大した写真"></div>
@@ -186,6 +192,12 @@ let TEMPLATE = load("iso.tmpl", TEMPLATE0);
 const norm = s => String(s||"").toUpperCase().replace(/[\s　]/g,"");
 const mbase = s => { const a = norm(s).replace(/[^A-Z0-9]/g,""); return a.length>=8 ? a.slice(0,8) : a; };
 const isIso = r => /移送/.test(r["仕分処理"]||"") || /移送/.test(r["配送担当者"]||"");
+/* ---- 照合する範囲：移送／トナミ便／保管／全部（シート照合ブザーの役目もここで） ---- */
+const SCOPES = {iso:"移送", tonami:"トナミ便", hokan:"保管", all:"出荷リスト"};
+let SCOPE = load("iso.scope", "iso");
+const isTonami = r => /トナミ/.test(r["運送会社"]||"") || ["072","72","02S"].includes(String(r["出場所"]||"").toUpperCase().replace(/\.0$/,""));
+const inScope = r => SCOPE==="all" ? true : SCOPE==="tonami" ? isTonami(r) : SCOPE==="hokan" ? /保管/.test(r["仕分処理"]||"") : isIso(r);
+const scName = () => SCOPES[SCOPE] || "移送";
 const tanN = s => String(s||"").replace(/\D/g,"");
 
 /* ---- 担当者表 ---- */
@@ -208,9 +220,9 @@ function findItem(code){
   const n = norm(code), b = mbase(code);
   const hit = r => { const m = r["マシンNo"]; if (norm(m)===n || (b.length===8 && mbase(m)===b)) return true;
     return String(r["三菱マシンNo"]||"").split(/\s+/).some(x=> x && (norm(x)===n || (b.length===8 && mbase(x)===b))); };
-  const sh = (DATA.shukka||[]).filter(hit).sort((a,b)=> (isIso(b)?1:0)-(isIso(a)?1:0));
+  const sh = (DATA.shukka||[]).filter(hit).sort((a,b)=> (inScope(b)?1:0)-(inScope(a)?1:0));
   if (sh.length){ const r = sh[0];
-    return {code:r["マシンNo"], kata:r["形名"]||r["標準品"]||"", qty:r["数量"], cust:r["得意先名"]||"", tan:tanN(r["担当者"]), order:r["オーダNo"]||"", shiwake:r["仕分処理"]||"", day:String(r["出荷日"]||""), iso:isIso(r), src:"出荷リスト"}; }
+    return {code:r["マシンNo"], kata:r["形名"]||r["標準品"]||"", qty:r["数量"], cust:r["得意先名"]||"", tan:tanN(r["担当者"]), order:r["オーダNo"]||"", shiwake:r["仕分処理"]||"", day:String(r["出荷日"]||""), iso:inScope(r), realIso:isIso(r), src:"出荷リスト"}; }
   const hr = (DATA.rows||[]).filter(hit);
   if (hr.length){ const r = hr[hr.length-1];
     return {code:r["マシンNo"], kata:r["形名略称"]||"", qty:r["数量"], cust:r["送り先名称"]||"", tan:tanN(r["担当者"]), order:r["オーダNo"]||"", shiwake:"", day:String(r["計上日"]||""), iso:false, src:"history"}; }
@@ -264,9 +276,10 @@ function handle(code, fromCam){
   const c = openCardFor(it.tan) || newCard(it.tan);
   c.items.push(it); dbPut(c); render();
   beep(it.iso ? "ok" : "dup"); vib(it.iso ? 150 : [80,60,80]);
-  status(it.iso ? "var(--ok)" : "var(--warn)", `${whoLine(it.tan)}${it.iso ? "" : "（移送の品ではありません）"}`, `${it.code}　${it.kata} ×${it.qty}　${it.cust}`);
-  if (it.iso){ const n = leftCount(); say(`${sayName(it.tan)}、移送品です。` + (n ? `残り${n}件` : "移送品は全部届きました")); }
-  else say(`${sayName(it.tan)}。移送の品ではありません`);
+  status(it.iso ? "var(--ok)" : "var(--warn)", `${whoLine(it.tan)}${it.iso ? "" : `（${scName()}の品ではありません）`}`, `${it.code}　${it.kata} ×${it.qty}　${it.cust}${it.shiwake ? "　"+it.shiwake : ""}`);
+  const kind = SCOPE==="iso" ? "移送品" : SCOPE==="all" ? (it.shiwake || "出荷リスト") + "の品" : scName() + "の品";
+  if (it.iso){ const n = leftCount(); say(`${sayName(it.tan)}、${kind}です。` + (n ? `残り${n}件` : `${scName()}の品は全部そろいました`)); }
+  else say(`${sayName(it.tan)}。${scName()}の品ではありません`);
 }
 function whoLine(tan){
   if (!tan) return "担当者不明";
@@ -395,19 +408,31 @@ function afterEdit(c){ if (!c.items.length && !c.photos.length && !c.sent){ CARD
 function renderBadge(){
   const b = $("badge");
   if (!SET.url){ b.textContent = "未設定"; b.className = "badge ng"; return; }
-  const n = (DATA.shukka||[]).filter(isIso).length;
-  b.textContent = DATA.at ? `移送 ${n}件` : "未読み込み"; b.className = "badge " + (DATA.at ? "ok" : "wait");
+  const n = (DATA.shukka||[]).filter(inScope).length;
+  b.textContent = DATA.at ? `${scName()} ${n}件` : "未読み込み"; b.className = "badge " + (DATA.at ? "ok" : "wait");
 }
+
+/* ---- 範囲の切り替え ---- */
+function renderScope(){
+  document.querySelectorAll(".scope button").forEach(b=>b.classList.toggle("on", b.dataset.sc===SCOPE));
+  document.querySelectorAll(".scName").forEach(e=>e.textContent = scName());
+}
+document.addEventListener("click", e=>{
+  const b = e.target.closest(".scope button[data-sc]"); if (!b) return;
+  SCOPE = b.dataset.sc; save("iso.scope", SCOPE);
+  renderScope(); renderBadge(); renderList();
+  const n = leftCount(); say(`${scName()}の品で照合します。` + (n ? `残り${n}件` : ""));
+});
 
 /* ---- 移送一覧 ---- */
 function renderList(){
-  const iso = (DATA.shukka||[]).filter(isIso);
+  const iso = (DATA.shukka||[]).filter(inScope);
   // 読んだ品物（案内カードに入ったもの）＝届いた。送ったカードのもの＝案内した。後ろの01・011の違いは無視する
   const got = new Set(), sent = new Set();
   for (const c of CARDS.values()) for (const x of c.items){ const k = mbase(x.code) || norm(x.code); got.add(k); if (c.sent) sent.add(k); }
   const key = r => mbase(r["マシンNo"]) || norm(r["マシンNo"]);
   const days = [...new Set(iso.map(r=>String(r["出荷日"]||"")))].sort();
-  $("listInfo").textContent = DATA.at ? `出荷リスト ${days.join("・")} の移送分（読み込み ${DATA.at}）` : "設定タブで「シートから読み込む」を押してください";
+  $("listInfo").textContent = DATA.at ? `出荷リスト ${days.join("・")} の${SCOPE==="all"?"全部":scName()+"分"}（読み込み ${DATA.at}）` : "設定タブで「シートから読み込む」を押してください";
   $("nAll").textContent = iso.length;
   $("nGot").textContent = iso.filter(r=>got.has(key(r))).length;
   $("nSent").textContent = iso.filter(r=>sent.has(key(r))).length;
@@ -416,7 +441,7 @@ function renderList(){
   $("isoList").innerHTML = sorted.map(r=>{
     const k = key(r), g = got.has(k), s2 = sent.has(k);
     return `<li class="${g ? "done" : ""}"><span class="ck">${g ? "✓" : ""}</span><span style="min-width:0;flex:1"><span class="m">${esc(r["マシンNo"])}</span>　${esc(r["形名"]||"")} ×${esc(r["数量"])}${g ? `<span class="tag">${s2 ? "案内済" : "届いた"}</span>` : ""}<div class="s">${esc([whoLine(tanN(r["担当者"])), r["得意先名"], r["仕分処理"]].filter(Boolean).join("　"))}</div></span></li>`;
-  }).join("") || '<li class="note">移送の品物はありません</li>';
+  }).join("") || `<li class="note">${scName()}の品物はありません</li>`;
 }
 
 /* ---- 「担当者不明」の案内を、今のデータで調べ直して担当者ごとの案内へ移す ---- */
@@ -481,7 +506,7 @@ function say(text){
 const sayName = tan => { if (!tan) return "担当者不明"; const p = PEOPLE.get(tan); return p && p.name ? san(p.name) : "担当 " + String(tan).split("").join(" "); };
 function leftCount(){
   const got = new Set(); for (const c of CARDS.values()) for (const x of c.items) got.add(mbase(x.code) || norm(x.code));
-  return (DATA.shukka||[]).filter(isIso).filter(r => !got.has(mbase(r["マシンNo"]) || norm(r["マシンNo"]))).length;
+  return (DATA.shukka||[]).filter(inScope).filter(r => !got.has(mbase(r["マシンNo"]) || norm(r["マシンNo"]))).length;
 }
 function beep(k){ if (k==="ok"){ tone(1320,0,.12); tone(1760,.12,.18); } else if (k==="dup"){ tone(880,0,.15,"triangle"); } else { tone(220,0,.35,"square",.2); } }
 const vib = p => { try{ navigator.vibrate && navigator.vibrate(p); }catch(e){} };
@@ -533,7 +558,7 @@ async function startCam(){
   const v = $("video"); v.srcObject = stream; await v.play().catch(()=>{});
   running = true; loop();
   const n = leftCount();
-  say(DATA.at ? (n ? `移送品をスキャンしてください。残り${n}件です` : "移送品をスキャンしてください") : "先に設定で、シートから読み込んでください");
+  say(DATA.at ? (n ? `${scName()}の品をスキャンしてください。残り${n}件です` : `${scName()}の品をスキャンしてください`) : "先に設定で、シートから読み込んでください");
 }
 function stopCam(){
   running = false;
@@ -676,7 +701,7 @@ $("clearSent").onclick = ()=>{
 (async ()=>{
   $("gasUrl").value = SET.url || ""; $("gasKey").value = SET.key || ""; $("gasDays").value = SET.days || "14";
   $("people").value = PEOPLE_TXT; $("tmpl").value = TEMPLATE;
-  renderData();
+  renderScope(); renderData();
   db = await openDB();
   const now = Date.now();
   for (const c of await dbAll()){
