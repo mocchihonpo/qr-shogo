@@ -51,6 +51,17 @@ label.big input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:
 .list a.open{display:inline-flex;align-items:center;border-radius:10px;background:var(--accent);color:var(--accent-fg);font-weight:700;text-decoration:none}
 .st{font-size:12px;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--idle);white-space:nowrap;flex:0 0 auto}
 .st.ok{background:var(--done)}.st.wait{background:var(--warn)}.st.ng{background:var(--ng)}
+/* 届いたメモ（テキスト）をその場で見る・1行ずつコピー */
+.memo{background:var(--panel);border:1.5px solid var(--line);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:6px;margin:-2px 0 4px}
+.memo .hd{display:flex;gap:8px;align-items:center}
+.memo .hd b{flex:1;min-width:0;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.memo .ln{display:flex;gap:8px;align-items:center;font-size:14px;line-height:1.45}
+.memo .ln span{flex:1;min-width:0;word-break:break-all;white-space:pre-wrap}
+.memo .ln.head span{font-weight:700;color:var(--accent)}
+.memo .ln.url span{font:13px var(--f-code)}
+.memo .ln.url a{color:inherit}
+.memo button{min-height:38px;padding:4px 12px;font-size:13px;flex:0 0 auto}
+.memo button.done{background:var(--ok,#2f6f4b);border-color:var(--ok,#2f6f4b);color:#fff}
 .empty{color:var(--muted);text-align:center;padding:18px 8px;font-size:14px}
 .note{font-size:13px;color:var(--muted);margin:0}
 .note a{color:var(--accent)}
@@ -89,7 +100,7 @@ nav button.on{color:var(--accent)}
     <div class="msg" id="rmsg" hidden></div>
     <h2>パソコンから届いたもの（「携帯へ」フォルダ）</h2>
     <ul class="list" id="recvList"><li class="empty">「一覧を更新」を押してください</li></ul>
-    <p class="note">パソコンで、マイドライブ「転送ボックス」→「携帯へ」にファイルを入れると、ここに出ます。Googleドキュメント・スプレッドシートはPDFにして開きます。</p>
+    <p class="note">パソコンで、マイドライブ「転送ボックス」→「携帯へ」にファイルを入れると、ここに出ます。メモ（.txt）は「📝 見る」でこの画面に出て、URLなどは「コピー」1回で写せます。Googleドキュメント・スプレッドシートはPDFにして開きます。</p>
   </section>
 
   <section class="view" id="v-set" hidden>
@@ -221,8 +232,10 @@ async function reload(){
       li.querySelector(".ic").textContent = icon(f.name, f.mime);
       li.querySelector(".nm").textContent = f.name;
       li.querySelector(".sb").textContent = `${d.getMonth()+1}/${d.getDate()} ${p2(d.getHours())}:${p2(d.getMinutes())}　${f.size?kb(f.size):""}`;
-      const b = document.createElement("button"); b.textContent = "取り込む";
-      b.onclick = ()=> fetchOne(f, li, b);
+      const isText = /^text\//.test(f.mime||"") || /\.(txt|md|csv)$/i.test(f.name||"");
+      const b = document.createElement("button"); b.textContent = isText ? "📝 見る" : "取り込む";
+      if (isText) b.style.cssText = "background:var(--accent);color:var(--accent-fg);border-color:var(--accent)";
+      b.onclick = ()=> isText ? showText(f, li, b) : fetchOne(f, li, b);
       li.append(b);
       if (opened.has(f.id)) showOpen(li, b, opened.get(f.id));
       L.append(li);
@@ -245,6 +258,49 @@ async function fetchOne(f, li, b){
     const o = {url:URL.createObjectURL(new Blob([arr],{type:j.mime||"application/octet-stream"})), name:j.name||f.name};
     opened.set(f.id, o); showOpen(li, b, o);
   }catch(e){ b.disabled = false; b.textContent = "取り込む"; showMsg("rmsg", e.message||"取り込めませんでした", "ng"); }
+}
+/* ---------- メモ（テキスト）はその場で開いて、行ごとにコピー ---------- */
+const memos = new Map(); // id -> 要素
+async function copyText(t, btn){
+  try{ await navigator.clipboard.writeText(t); }
+  catch(e){ const ta = document.createElement("textarea"); ta.value = t; ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.append(ta); ta.select(); try{ document.execCommand("copy"); }catch(e2){} ta.remove(); }
+  const keep = btn.dataset.label || btn.textContent; btn.dataset.label = keep;
+  btn.textContent = "✓ コピーしました"; btn.classList.add("done");
+  setTimeout(()=>{ btn.textContent = keep; btn.classList.remove("done"); }, 1500);
+}
+async function showText(f, li, b){
+  const old = memos.get(f.id);
+  if (old){ old.hidden = !old.hidden; b.textContent = old.hidden ? "📝 見る" : "閉じる"; return; }
+  b.disabled = true; b.textContent = "開いています…";
+  try{
+    const u = new URL(SET.url); u.searchParams.set("key", SET.key||""); u.searchParams.set("action","get"); u.searchParams.set("id", f.id);
+    const j = await (await fetch(u.toString(), {redirect:"follow"})).json();
+    if (!j.ok) throw new Error(j.error||"開けませんでした");
+    const bin = atob(j.data), arr = new Uint8Array(bin.length);
+    for (let i=0;i<bin.length;i++) arr[i] = bin.charCodeAt(i);
+    const text = new TextDecoder("utf-8").decode(arr).replace(/^\uFEFF/,"");
+    const box = document.createElement("div"); box.className = "memo";
+    const hd = document.createElement("div"); hd.className = "hd";
+    const hb = document.createElement("b"); hb.textContent = f.name;
+    const all = document.createElement("button"); all.textContent = "全部コピー"; all.onclick = ()=> copyText(text, all);
+    hd.append(hb, all); box.append(hd);
+    for (const raw of text.split(/\r?\n/)){
+      const line = raw.trim(); if (!line) continue;
+      const row = document.createElement("div"); row.className = "ln";
+      const sp = document.createElement("span");
+      const isUrl = /^https?:\/\/\S+$/.test(line);
+      if (/^[■●◆【]/.test(line)) row.classList.add("head");
+      if (isUrl){ row.classList.add("url"); const a = document.createElement("a"); a.href = line; a.target = "_blank"; a.rel = "noopener"; a.textContent = line; sp.append(a); }
+      else sp.textContent = line;
+      row.append(sp);
+      // URL・合言葉など、貼り付けに使いそうな行にだけコピーボタン
+      const val = isUrl ? line : (line.match(/[:：]\s*([A-Za-z0-9_\-.]{4,})$/)||[])[1];
+      if (val){ const c = document.createElement("button"); c.textContent = "コピー"; c.onclick = ()=> copyText(val, c); row.append(c); }
+      box.append(row);
+    }
+    li.after(box); memos.set(f.id, box);
+    b.disabled = false; b.textContent = "閉じる";
+  }catch(e){ b.disabled = false; b.textContent = "📝 見る"; showMsg("rmsg", e.message||"開けませんでした", "ng"); }
 }
 $("reload").onclick = reload;
 
