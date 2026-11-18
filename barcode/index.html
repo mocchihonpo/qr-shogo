@@ -35,6 +35,9 @@ main{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;padd
 .cam video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .cam .frame{position:absolute;left:50%;top:50%;width:88%;aspect-ratio:3/1;transform:translate(-50%,-50%);border:3px solid rgba(255,255,255,.85);border-radius:14px;pointer-events:none}
 .cam .seen{position:absolute;left:8px;right:8px;top:8px;padding:5px 10px;border-radius:8px;background:rgba(0,0,0,.7);color:#fff;font:700 13px var(--f-code);word-break:break-all;text-align:center;max-height:40%;overflow:hidden}
+.cam .zoom{position:absolute;right:8px;bottom:26px;display:flex;flex-direction:column;gap:6px;z-index:2}
+.cam .zoom button{min-height:40px;width:48px;padding:0;border-radius:999px;background:rgba(0,0,0,.6);border:1.5px solid rgba(255,255,255,.6);color:#fff;font-size:14px}
+.cam .zoom button.on{background:#fff;color:#000}
 .cam .diag{position:absolute;left:0;right:0;bottom:0;padding:3px 8px;font:11px var(--f-code);color:#fff;background:rgba(0,0,0,.45)}
 .cam .tap{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:rgba(0,0,0,.72);color:#fff;border:0;border-radius:0;font-size:20px;width:100%}
 .cam .tap small{font-size:13px;font-weight:400;opacity:.85}
@@ -126,6 +129,7 @@ h1{color:var(--accent)}
       <div class="frame"></div>
       <div class="seen" id="seen" hidden></div>
       <div class="diag" id="diag"></div>
+      <div class="zoom" id="zoomBox" hidden><button data-z="1" class="on">1×</button><button data-z="2">2×</button><button data-z="3">3×</button></div>
       <button class="tap" id="tapStart">タップしてカメラ開始<small>音もここでオンになります</small></button>
     </div>
     <div class="status" id="status" role="status" aria-live="polite"><b id="sBig">準備中</b><span id="sSub"></span></div>
@@ -363,35 +367,41 @@ function handle(code, fromCam){
 let detector = null;
 try{ if ("BarcodeDetector" in window) detector = new BarcodeDetector({formats:["qr_code","code_128","code_39","code_93","codabar","ean_13","ean_8","itf","upc_a","upc_e","data_matrix"]}); }catch(e){ detector = null; }
 let zxOK = null;  // 高感度エンジン（ZXing）が使えるか
+let zxPass = 0;
+const ZX_FORMATS = ["QRCode","Code128","Code39","Code93","Codabar","EAN-13","EAN-8","ITF","UPC-A","UPC-E","DataMatrix"];
+// チェック用の数字が入っている種類は1回読めたら確定。ITFなどは誤読しやすいので2回続けて同じなら確定
+const SURE = f => /qr|code_?128|code128|data_?matrix|datamatrix|ean|upc/i.test(String(f||""));
 async function decodeCanvas(cv){
   const W = cv.width, H = cv.height, cx = W/2, cy = H/2;
   const nearest = list => list.sort((p,q)=>p.d-q.d)[0];   // 画面の中央に一番近いQRを選ぶ
   if (detector){
     try{
       const r = await detector.detect(cv);
-      if (r && r.length) return nearest(r.map(x=>{ const bb=x.boundingBox; return {t:x.rawValue, d:Math.hypot(bb.x+bb.width/2-cx, bb.y+bb.height/2-cy)}; })).t;
+      if (r && r.length) return nearest(r.map(x=>{ const bb=x.boundingBox; return {t:x.rawValue, f:x.format, d:Math.hypot(bb.x+bb.width/2-cx, bb.y+bb.height/2-cy)}; }));
     }catch(e){}
   }
   const img = cv.getContext("2d",{willReadFrequently:true}).getImageData(0,0,W,H);
   if (window.ZXingWASM && zxOK !== false){
     try{
-      const r = await ZXingWASM.readBarcodes(img, {tryHarder:true, maxNumberOfSymbols:4});
+      // 感度を上げる：回転・白黒反転・縮小も試す。2回に1回は別の白黒の分け方（暗い所・反射に強い）
+      const r = await ZXingWASM.readBarcodes(img, {formats:ZX_FORMATS, tryHarder:true, tryRotate:true, tryInvert:true, tryDownscale:true,
+        binarizer: (zxPass++ % 2) ? "GlobalHistogram" : "LocalAverage", maxNumberOfSymbols:4});
       zxOK = true;
       const ok = (r||[]).filter(x=>x.isValid && x.text);
-      if (ok.length) return nearest(ok.map(x=>{ const p=x.position; const mx=(p.topLeft.x+p.topRight.x+p.bottomLeft.x+p.bottomRight.x)/4, my=(p.topLeft.y+p.topRight.y+p.bottomLeft.y+p.bottomRight.y)/4; return {t:x.text, d:Math.hypot(mx-cx,my-cy)}; })).t;
+      if (ok.length) return nearest(ok.map(x=>{ const p=x.position; const mx=(p.topLeft.x+p.topRight.x+p.bottomLeft.x+p.bottomRight.x)/4, my=(p.topLeft.y+p.topRight.y+p.bottomLeft.y+p.bottomRight.y)/4; return {t:x.text, f:x.format, d:Math.hypot(mx-cx,my-cy)}; }));
       return null;
     }catch(e){ zxOK = false; }
   }
   if (window.jsQR){
     const r = jsQR(img.data, W, H, {inversionAttempts:"dontInvert"});
-    if (r) return r.data;
+    if (r) return {t:r.data, f:"qr_code"};
   }
   return null;
 }
 
 /* ---------- カメラ ---------- */
 let pend = "", pendAt = 0;  // 誤読防止：2回連続で同じ内容なら確定
-let stream = null, running = false, tries = 0, flip = false, seenCode = "", seenAt = 0;
+let stream = null, running = false, tries = 0, flip = 0, seenCode = "", seenAt = 0;
 const work = document.createElement("canvas");
 function camWhy(e){
   const n = (e&&e.name)||"";
@@ -406,7 +416,8 @@ async function startCam(){
   $("tapStart").hidden = true;
   if (!navigator.mediaDevices){ $("tapStart").hidden=false; $("tapStart").innerHTML="カメラを使えませんでした<small>"+camWhy(null)+"</small>"; return; }
   try{
-    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1920},height:{ideal:1080}},audio:false});
+    // 細いバーコードを読みやすくするため、なるべく高い解像度で開く
+    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:2560},height:{ideal:1440}},audio:false});
   }catch(e){
     try{ stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"},audio:false}); }
     catch(e2){
@@ -416,6 +427,12 @@ async function startCam(){
     }
   }
   const v = $("video"); v.srcObject = stream; await v.play().catch(()=>{});
+  // ピントを合わせ続ける（できる携帯だけ）
+  try{ const tr = stream.getVideoTracks()[0], cap = tr.getCapabilities ? tr.getCapabilities() : {};
+    if (cap.focusMode && cap.focusMode.includes("continuous")) await tr.applyConstraints({advanced:[{focusMode:"continuous"}]});
+    // カメラのズーム（できる携帯だけボタンを出す）
+    if (cap.zoom && cap.zoom.max > 1){ ZOOMCAP = cap.zoom; $("zoomBox").hidden = false; let z = 1; try{ z = JSON.parse(localStorage.getItem("bc.zoom")) || 1; }catch(e){} setZoom(z); }
+  }catch(e){}
   running = true; idleStatus(); loop();
   setTimeout(()=>{ if (stream && !$("video").videoWidth){ $("tapStart").hidden=false; $("tapStart").innerHTML="カメラの映像が来ません<small>照合ブザーの他のページ（QR・シート）を開いているタブを閉じてから、ここをタップしてください</small>"; try{stream.getTracks().forEach(t=>t.stop());}catch(e){} stream=null; running=false; } }, 4000);
 }
@@ -430,20 +447,23 @@ async function loop(){
       // 画面に見えている範囲（と、交互に枠の内側を拡大）を解析する
       const box = $("cam"), fr = box.querySelector(".frame");
       const sc = Math.max(box.clientWidth/W, box.clientHeight/H);
-      let cw, ch;
-      if (flip){ cw = Math.min(W, Math.round(fr.offsetWidth*1.1/sc)); ch = Math.min(H, Math.round(fr.offsetHeight*1.6/sc)); }
-      else { cw = Math.min(W, Math.round(box.clientWidth/sc)); ch = Math.min(H, Math.round(box.clientHeight/sc)); }
+      // 3通りを順番に試す：①見えている範囲全体 ②枠の内側を縮めずに ③枠のさらに真ん中を拡大（小さいバーコード用）
+      const pass = flip % 3; let cw, ch, maxSide;
+      if (pass === 1){ cw = Math.min(W, Math.round(fr.offsetWidth*1.15/sc)); ch = Math.min(H, Math.round(fr.offsetHeight*1.8/sc)); maxSide = 1600; }
+      else if (pass === 2){ cw = Math.min(W, Math.round(fr.offsetWidth*0.75/sc)); ch = Math.min(H, Math.round(fr.offsetHeight*1.2/sc)); maxSide = 1400; }
+      else { cw = Math.min(W, Math.round(box.clientWidth/sc)); ch = Math.min(H, Math.round(box.clientHeight/sc)); maxSide = 1280; }
       const sx = Math.round((W-cw)/2), sy = Math.round((H-ch)/2);
-      const k = Math.min(1, (flip?1000:1100)/Math.max(cw,ch));
+      const k = pass === 2 ? Math.min(2, maxSide/Math.max(cw,ch)) : Math.min(1, maxSide/Math.max(cw,ch));
       work.width = Math.round(cw*k); work.height = Math.round(ch*k);
+      ctx.imageSmoothingEnabled = pass !== 2;
       ctx.drawImage(v,sx,sy,cw,ch,0,0,work.width,work.height);
-      flip = !flip;
+      flip = (flip + 1) % 3;
       code = await decodeCanvas(work);
     }catch(e){}
     tries++;
     $("diag").textContent = `カメラ ${W}×${H}　解析 ${tries}回　${detector?"標準":zxOK?"ZXing":window.ZXingWASM&&zxOK===null?"ZXing準備中":"jsQR"}`;
-    if (code){ code = code.trim(); const t = Date.now();
-      if (code===pend && t-pendAt < 1500){ seenCode = code; seenAt = t; handle(code, true); }
+    if (code){ const sure = SURE(code.f); code = String(code.t||"").trim(); const t = Date.now();
+      if (code && (sure || (code===pend && t-pendAt < 2000))){ seenCode = code; seenAt = t; handle(code, true); }
       pend = code; pendAt = t; }
     const fresh = seenCode && Date.now()-seenAt < 1200;
     $("seen").hidden = !fresh;
@@ -452,6 +472,15 @@ async function loop(){
   setTimeout(loop, 60);
 }
 $("tapStart").onclick = startCam;
+let ZOOMCAP = null;
+async function setZoom(z){
+  if (!stream || !ZOOMCAP) return;
+  const v = Math.max(ZOOMCAP.min||1, Math.min(ZOOMCAP.max, z));
+  try{ await stream.getVideoTracks()[0].applyConstraints({advanced:[{zoom:v}]}); }catch(e){}
+  document.querySelectorAll("#zoomBox button").forEach(b=>b.classList.toggle("on", +b.dataset.z === z));
+  try{ localStorage.setItem("bc.zoom", JSON.stringify(z)); }catch(e){}
+}
+$("zoomBox").onclick = e => { const b = e.target.closest("button[data-z]"); if (b) setZoom(+b.dataset.z); };
 /* iPhoneはカメラを同時に1つのタブしか使えないので、見ていない間はカメラを手放し、戻ったら付け直す */
 let wantCam = false;
 document.addEventListener("visibilitychange", ()=>{
