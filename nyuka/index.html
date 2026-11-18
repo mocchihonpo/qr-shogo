@@ -360,7 +360,9 @@ $("test").onclick = async ()=>{
   try{
     const u = new URL(SET.url); u.searchParams.set("key", SET.key||"");
     const j = await (await fetch(u.toString(), {redirect:"follow"})).json();
-    if (j.ok) setMsg(`つながりました。送り先フォルダ：「${j.folder}」`, "ok");
+    if (j.shukka || j.rows) setMsg("このURLは移送品あんない用（データ中継）です。入荷品カメラ用のApps ScriptのURLを入れてください", "ng");
+    else if (j.recv || /転送/.test(j.folder||"")) setMsg("このURLは転送ボックス用です。入荷品カメラ用のApps ScriptのURLを入れてください", "ng");
+    else if (j.ok && j.folder) setMsg(`つながりました。送り先フォルダ：「${j.folder}」`, "ok");
     else setMsg(j.error || "合言葉が違います", "ng");
   }catch(e){ setMsg("つながりません。URLと、デプロイの「アクセスできるユーザー：全員」を確認してください", "ng"); }
 };
