@@ -162,6 +162,7 @@ nav button.on{background:var(--accent);color:var(--accent-fg)}
   <div id="setMsg" class="msg" hidden></div>
   <label class="chk"><input type="checkbox" id="keepPhoto"> 撮った写真もドライブ（棚在庫_写真）に残す</label>
   <label class="chk"><input type="checkbox" id="voiceOn"> 声で案内する</label>
+  <label class="chk"><input type="checkbox" id="needQR"> 棚のQRを読んでからでないと、品物を入れられないようにする</label>
   <h2>棚に貼る担当QR</h2>
   <p class="note">いま選んでいる担当者のQRを印刷します。棚に貼っておくと、映すだけで担当者が切り替わります。</p>
   <button id="printShelf">🖨 担当QRを印刷</button>
@@ -182,6 +183,28 @@ const load = (k, d) => { try{ const v = JSON.parse(localStorage.getItem(k)); ret
 const save = (k, v) => { try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} };
 
 let SET = load("tana.set", {url:"", key:"mocchi2026", keepPhoto:false, voice:true});
+if (SET.needQR === undefined) SET.needQR = true;      // 棚のQRを読んでからでないと入れられない
+
+/* ---------- 台帳（移送品あんない・配達品あんないが読んだ出荷リスト）で、品物の担当者を確かめる ---------- */
+function ledger(){
+  const a = load("iso.data", null), b = load("haiso.data", null);
+  const rows = [...((a && a.shukka) || []), ...((b && b.shukka) || [])];
+  const m = new Map();
+  for (const r of rows){
+    const k = String(r["マシンNo"]||"").toUpperCase().normalize("NFKC").replace(/[^A-Z0-9]/g,"").slice(0,8);
+    const t = String(r["担当者"]||"").replace(/\.0$/,"").replace(/\D/g,"");
+    if (k && t) m.set(k, {tan:t, kata:r["形名"]||r["標準品"]||"", cust:r["得意先名"]||"", shiwake:r["仕分処理"]||""});
+  }
+  return m;
+}
+let LEDGER = ledger();
+// 担当者の名前は移送品あんないの担当者表からも借りる
+function isoName(t){ const txt = load("iso.people", ""); for (const line of String(txt).split(/\r?\n/)){ const c = line.split(/\t|,|，|、/).map(x=>x.trim()); if (c[0] && c[0].replace(/\D/g,"") === t) return c[1]||""; } return ""; }
+const nameOf = t => (t && (TANS[t] || isoName(t))) || "";
+// 移送品あんないの「棚に入れる」から来たとき：入れる先の担当者と品物
+const Q = new URLSearchParams(location.search);
+const EXPECT = (Q.get("expect")||"").replace(/\D/g,"");
+const EXPECT_ITEMS = (Q.get("items")||"").split(",").map(x=>x.trim()).filter(Boolean);
 let TANS = load("tana.tans", {});         // {番号: 名前}
 let CUR = load("tana.cur", {tan:"", dan:"1", mode:"in"});
 let PEND = load("tana.pend", []);         // [{mno, how, kata, cust, day, ltan, photo}]
@@ -199,7 +222,10 @@ function say(text){
   try{ speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.lang = "ja-JP"; u.rate = 1.1;
     const v = speechSynthesis.getVoices().find(x => /^ja/i.test(x.lang)); if (v) u.voice = v; speechSynthesis.speak(u); }catch(e){}
 }
-function status(bg, big, sub){ const s = $("status"); s.style.background = bg; s.innerHTML = `<b>${esc(big)}</b>${sub?`<span>${esc(sub)}</span>`:""}`; }
+let WRONG = "", FORCE = "";
+function status(bg, big, sub, force){ const s = $("status"); s.style.background = bg; s.innerHTML = `<b>${esc(big)}</b>${sub?`<span>${esc(sub)}</span>`:""}` + (force ? `<button id="forceBtn" style="margin-top:6px;min-height:38px;font-size:13px">それでもこの棚に入れる</button>` : ""); if (force) $("forceBtn").onclick = () => { FORCE = WRONG; lastCode = ""; handleCode(WRONG, "手入力"); }; }
+// 違うときのブザー（3回）
+function sWrong(){ tone(300,0,.22,"square",.3); tone(300,.3,.22,"square",.3); tone(300,.6,.35,"square",.3); }
 
 /* ---------- マシンNo ---------- */
 const mbase = s => String(s||"").toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,8);
@@ -212,7 +238,7 @@ function tidy(s){
 const looksTan = s => /^\d{3,6}$/.test(String(s||"").normalize("NFKC").trim()) || /^TANA[:：]?\d{3,6}/i.test(String(s||"").trim());
 
 /* ---------- どの棚か ---------- */
-function whereText(){ return CUR.tan ? `${CUR.tan}${TANS[CUR.tan]?" "+TANS[CUR.tan]:""}　${CUR.dan==="床"?"床置き":CUR.dan+"段目"}` : "担当未選択"; }
+function whereText(){ return CUR.tan ? `${CUR.tan}${nameOf(CUR.tan)?" "+nameOf(CUR.tan):""}　${CUR.dan==="床"?"床置き":CUR.dan+"段目"}` + (CUR.mode==="in" && SET.needQR && !CUR.qr ? "（棚QR未確認）" : "") : "担当未選択"; }
 function renderWhere(){
   $("tan").value = CUR.tan; $("nm").value = TANS[CUR.tan] || "";
   $("dan").innerHTML = DANS.map(d=>`<button data-d="${d}" class="${CUR.dan===d?"on":""}">${d==="床"?"床":d+"段"}${d==="1"?"<small>いちばん下</small>":""}</button>`).join("");
@@ -223,14 +249,21 @@ function renderWhere(){
   $("where2").textContent = (CUR.mode==="out" ? "📤 出ていった　" : "📥 ") + whereText();
   save("tana.cur", CUR);
 }
-function setTan(t, speak){
+function setTan(t, speak, byQR){
   t = String(t||"").normalize("NFKC").replace(/^TANA[:：]?/i,"").replace(/\D/g,"");
   if (!t) return;
   if (CUR.tan !== t){ CUR.tan = t; if (!(t in TANS)){ TANS[t] = ""; save("tana.tans", TANS); } }
+  CUR.qr = !!byQR;
   renderWhere(); renderPend();
+  const nm = nameOf(t) ? nameOf(t) + "さん" : t;
+  if (EXPECT && byQR && t !== EXPECT){
+    sWrong(); status("var(--ng)", "⚠ 棚が違います", `ここは ${t} ${nameOf(t)} の棚です。入れる先は ${EXPECT} ${nameOf(EXPECT)} の棚です`);
+    say(`棚が違います。${nameOf(EXPECT) ? nameOf(EXPECT)+"さん" : EXPECT}の棚に入れてください`); return;
+  }
   sOK(); vib(60);
+  if (CUR.mode==="in" && SET.needQR && !byQR){ status("var(--warn)", whereText(), "棚に貼ってある担当者のQRを読んでから、品物を読んでください"); if (speak) say(`${nm}の棚です。棚のQRを読んでください`); return; }
   status("var(--ok)", whereText(), "この棚の品物を読んでください");
-  if (speak) say(`${TANS[t]? TANS[t]+"さん" : t}の棚、${CUR.dan==="床"?"床置き":CUR.dan+"段目"}です`);
+  if (speak) say(`${nm}の棚、${CUR.dan==="床"?"床置き":CUR.dan+"段目"}です`);
 }
 $("tan").addEventListener("change", ()=> setTan($("tan").value, false));
 $("nm").addEventListener("change", ()=>{ if (!CUR.tan) return; TANS[CUR.tan] = $("nm").value.trim(); save("tana.tans", TANS); renderWhere(); });
@@ -254,9 +287,10 @@ function renderPend(){
   const verb = CUR.mode==="out" ? "「出た」にする" : "登録";
   $("pendH").textContent = `これから${verb}（${PEND.length}件）`;
   $("pend").innerHTML = PEND.map((p,i)=>{
-    const other = false;
+    const lt = p.ltan || (LEDGER.get(mbase(p.mno))||{}).tan || "";
+    const other = CUR.mode==="in" && lt && CUR.tan && lt !== CUR.tan;
     const sub = [p.kata, p.cust, p.day && ("出荷"+String(p.day).slice(4,6)+"/"+String(p.day).slice(6,8)), p.ltan && ("台帳の担当 "+p.ltan)].filter(Boolean).join("　");
-    return `<li class="${other?"warn":""}"><span><span class="m">${esc(p.mno)}</span><span class="tag ${p.how==="写真"?"ph":"bc"}">${esc(p.how)}</span>${sub?`<div class="s">${esc(sub)}</div>`:""}${other?`<div class="s" style="color:var(--accent)">⚠ 台帳では別の担当者です</div>`:""}</span><button data-i="${i}" aria-label="${esc(p.mno)}を外す">✕</button></li>`;
+    return `<li class="${other?"warn":""}"><span><span class="m">${esc(p.mno)}</span><span class="tag ${p.how==="写真"?"ph":"bc"}">${esc(p.how)}</span>${sub?`<div class="s">${esc(sub)}</div>`:""}${other?`<div class="s" style="color:#ff6b61;font-weight:700">⚠ 担当者が違います（${esc(lt)} ${esc(nameOf(lt))} の分）。✕で外してください</div>`:""}</span><button data-i="${i}" aria-label="${esc(p.mno)}を外す">✕</button></li>`;
   }).join("") || `<li class="empty" style="justify-content:center">まだありません</li>`;
   $("saveBtn").disabled = !PEND.length || (CUR.mode==="in" && !CUR.tan);
   $("saveBtn").textContent = CUR.mode==="out" ? `📤 ${PEND.length}件を「出た」にする` : (CUR.tan ? `${whereText()} に ${PEND.length}件を登録` : "先に担当番号を入れてください");
@@ -293,6 +327,7 @@ let aiBusy = false;
 async function aiRead(canvas){
   if (aiBusy) return;
   if (CUR.mode==="in" && !CUR.tan){ sNG(); status("var(--warn)","先に担当番号を入れてください","棚の担当QRを映すか、上の欄に番号を入れます"); return; }
+  if (CUR.mode==="in" && SET.needQR && !CUR.qr){ sWrong(); status("var(--warn)","先に棚のQRを読んでください","棚に貼ってある担当者のQRを映してから撮ります"); say("先に、棚のQRを読んでください"); return; }
   aiBusy = true; $("aiBtn").disabled = true; $("aiBtn").textContent = "AIが読んでいます…";
   tone(1800,0,.08,"square",.15);
   status("var(--idle)","AIが写真を読んでいます…","10秒ほどかかります。そのまま待ってください");
@@ -301,6 +336,8 @@ async function aiRead(canvas){
     const j = await post({action:"ocr", data, keepPhoto: !!SET.keepPhoto, tan: CUR.tan, dan: CUR.dan});
     if (!j.items.length){ sNG(); vib([80,60,80]); status("var(--ng)","マシンNoが見つかりませんでした","ラベルが写るように近づいて、もう一度撮ってください"); say("マシン番号が見つかりませんでした"); return; }
     const r = addItems(j.items, "写真", j.photo);
+    const bad = j.items.filter(x => { const lt = x.ltan || (LEDGER.get(mbase(x.mno))||{}).tan; return CUR.mode==="in" && lt && lt !== CUR.tan; });
+    if (bad.length){ sWrong(); vib([300,120,300]); status("var(--ng)", `⚠ 担当者が違う品物が ${bad.length}件あります`, bad.map(x=>x.mno).join("、") + "　赤い印のものを確かめてください"); say(`担当者が違う品物が、${bad.length}件あります`); return; }
     sOK(); vib(80);
     status("var(--ok)", `${j.items.length}件読みました（新しく${r.n}件）`, j.items.map(x=>x.mno).join("、"));
     say(`${j.items.length}件読みました`);
@@ -363,11 +400,22 @@ function handleCode(raw, how){
   if (!code) return;
   if (code === lastCode && Date.now()-lastAt < 2500) return;
   lastCode = code; lastAt = Date.now();
-  if (looksTan(code)){ if (code.replace(/\D/g,"") !== CUR.tan) setTan(code, true); return; }
+  if (looksTan(code)){ if (code.replace(/\D/g,"") !== CUR.tan || !CUR.qr) setTan(code, true, how !== "手入力"); return; }
   const m = tidy(code);
   if (!m || !/[A-Z]/.test(m)){ if (how==="手入力"){ sNG(); status("var(--warn)","マシンNoの形ではありません", code+"（例 KKE-B5729）"); } return; }   // マシンNoでないバーコード（数字だけ等）は黙って飛ばす
   if (CUR.mode==="in" && !CUR.tan){ sNG(); status("var(--warn)","先に担当番号を入れてください",""); return; }
-  const r = addItems([{mno:m}], how);
+  if (CUR.mode==="in" && SET.needQR && !CUR.qr){ sWrong(); status("var(--warn)","先に棚のQRを読んでください", "棚に貼ってある担当者のQRを映してから、品物を読みます"); say("先に、棚のQRを読んでください"); return; }
+  // 台帳の担当者とちがう棚なら、ブザーで止める
+  const L = LEDGER.get(mbase(m));
+  if (CUR.mode==="in" && L && L.tan && L.tan !== CUR.tan && !(FORCE === mbase(m))){
+    sWrong(); vib([300,120,300,120,300]);
+    WRONG = mbase(m);
+    status("var(--ng)", `⚠ 担当者が違います：${m}`, `この品物は ${L.tan} ${nameOf(L.tan)} の分です（${L.cust}）。ここは ${CUR.tan} ${nameOf(CUR.tan)} の棚です`, true);
+    say(`担当者が違います。この品物は、${nameOf(L.tan) ? nameOf(L.tan)+"さん" : L.tan}の分です`);
+    return;
+  }
+  FORCE = "";
+  const r = addItems([{mno:m, ltan:L ? L.tan : "", kata:L ? L.kata : "", cust:L ? L.cust : ""}], how);
   if (r.n){ sOK(); vib(50); status("var(--ok)", m, `${whereText()}　これから${CUR.mode==="out"?"「出た」":"登録"} ${PEND.length}件`); fillInfo(); }
   else { tone(900,0,.08); status("var(--idle)", m, "もう読んであります"); }
 }
@@ -471,10 +519,10 @@ $("listBox").onclick = async e => {
 
 /* ---------- 設定 ---------- */
 function renderBadge(){ const b = $("badge"); if (!SET.url){ b.textContent = "未設定"; b.className = "badge ng"; } else { b.textContent = "つながり設定済"; b.className = "badge ok"; } }
-function readSet(){ SET = Object.assign(SET, {url:$("gasUrl").value.trim(), key:$("gasKey").value.normalize("NFKC").trim(), keepPhoto:$("keepPhoto").checked, voice:$("voiceOn").checked}); save("tana.set", SET); renderBadge(); }
+function readSet(){ SET = Object.assign(SET, {url:$("gasUrl").value.trim(), key:$("gasKey").value.normalize("NFKC").trim(), keepPhoto:$("keepPhoto").checked, voice:$("voiceOn").checked, needQR:$("needQR").checked}); save("tana.set", SET); renderBadge(); renderWhere(); }
 function setMsg(t, cls){ const m = $("setMsg"); m.hidden = false; m.className = "msg " + (cls||""); m.textContent = t; }
 $("setSave").onclick = () => { readSet(); setMsg("保存しました", "ok"); };
-$("keepPhoto").onchange = readSet; $("voiceOn").onchange = readSet;
+$("keepPhoto").onchange = readSet; $("voiceOn").onchange = readSet; $("needQR").onchange = readSet;
 $("setTest").onclick = async () => {
   readSet(); setMsg("試しています…");
   try{ const j = await get({}); setMsg("つながりました。担当者 " + j.tans.length + "人が登録されています", "ok");
@@ -498,9 +546,12 @@ document.querySelector("nav").onclick = e => {
   if (tab==="list"){ if (!$("listTan").value && CUR.tan) $("listTan").value = CUR.tan; if (!LIST.length && SET.url) loadList(); }
 };
 
-$("gasUrl").value = SET.url; $("gasKey").value = SET.key; $("keepPhoto").checked = !!SET.keepPhoto; $("voiceOn").checked = SET.voice !== false;
+$("gasUrl").value = SET.url; $("gasKey").value = SET.key; $("keepPhoto").checked = !!SET.keepPhoto; $("voiceOn").checked = SET.voice !== false; $("needQR").checked = SET.needQR !== false;
+CUR.qr = false;   // 開き直したら、棚のQRを読み直す
+if (EXPECT){ CUR.mode = "in"; }
 renderBadge(); renderWhere(); renderPend();
-if (CUR.tan) status("var(--idle)", whereText(), "カメラをタップして始めます");
+if (EXPECT) status("#7a4a00", `🗄 ${EXPECT} ${nameOf(EXPECT)} の棚へ入れます`, `品物 ${EXPECT_ITEMS.length}件：${EXPECT_ITEMS.join("、")}。カメラを開始して、棚のQRを読んでください`);
+else if (CUR.tan) status("var(--idle)", whereText(), "カメラをタップして始めます");
 </script>
 </body>
 </html>

@@ -74,6 +74,7 @@ h2{font-size:14px;margin:6px 0 0;color:var(--muted)}
 .card .acts label.pick{flex:1;min-height:38px;font-size:13px}
 .card .acts .del{flex:0 0 auto;min-height:38px;padding:4px 10px}
 .send{display:flex;gap:6px;flex-wrap:wrap}
+.send .tanaLink{display:flex;align-items:center;justify-content:center;min-height:42px;padding:0 12px;border-radius:10px;border:1.5px solid #c77700;color:#ffcc80;font-weight:700;text-decoration:none;flex:1 1 100%}
 .send button{flex:1;background:var(--teams);border-color:var(--teams);color:#fff;min-height:46px;font-size:14px}
 .sentmark{font-size:12px;font-weight:700;background:var(--ok);border-radius:999px;padding:2px 10px;align-self:flex-start}
 .empty{color:var(--muted);text-align:center;padding:16px 8px;font-size:14px}
@@ -408,6 +409,13 @@ function render(){
       b.onclick = ()=>{ c.memo = el.querySelector(".memo").value.trim(); shareCard(c, who, to); };
       send.append(b);
     });
+    // 案内したあと、その担当者の棚へ入れる（担当棚カメラで棚のQR→品物を読んで確かめる）
+    if (c.tan && c.items.length){
+      const t = document.createElement("a");
+      t.className = "tanaLink"; t.textContent = "🗄 棚に入れる（担当棚カメラ）";
+      t.href = "../tana/?expect=" + encodeURIComponent(c.tan) + "&items=" + encodeURIComponent(c.items.map(i=>i.code).join(","));
+      send.append(t);
+    }
     box.append(el);
   }
   renderBadge(); renderList();
