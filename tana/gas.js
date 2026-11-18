@@ -150,11 +150,12 @@ function saveItems_(p) {
 }
 function markOut_(mnos) {
   const sh = sheet_('棚在庫'), v = rows_(), t = now_();
-  const col = k => HEAD.indexOf(k), want = {};
-  (mnos || []).forEach(m => want[mbase_(m)] = 1);
+  const col = k => HEAD.indexOf(k), want = {}, exact = {};
+  (mnos || []).forEach(m => { exact[String(m)] = 1; if (!/^伝票写真/.test(m)) want[mbase_(m)] = 1; });
   let n = 0;
   v.forEach((r, i) => {
-    if (r[col('状態')] === ON && want[mbase_(r[col('マシンNo')])]) {
+    const m = String(r[col('マシンNo')]);
+    if (r[col('状態')] === ON && (exact[m] || (!/^伝票写真/.test(m) && want[mbase_(m)]))) {
       sh.getRange(i + 2, col('状態') + 1, 1, 2).setValues([[OUT, t]]);
       sh.getRange(i + 2, col('更新日時') + 1).setValue(t);
       n++;
@@ -176,8 +177,18 @@ function tanList_() {
 function listOn_(tan) {
   const col = k => HEAD.indexOf(k);
   return rows_().filter(r => r[col('状態')] === ON && (!tan || String(r[col('担当者番号')]) === String(tan)))
-    .map(r => ({ tan: String(r[col('担当者番号')]), name: String(r[col('担当者名')]), dan: String(r[col('段')]), mno: String(r[col('マシンNo')]),
+    .map(r => ({ how: String(r[col('読み方')]), photo: String(r[col('写真')]), tan: String(r[col('担当者番号')]), name: String(r[col('担当者名')]), dan: String(r[col('段')]), mno: String(r[col('マシンNo')]),
       kata: String(r[col('形名')]), cust: String(r[col('得意先名')]), day: String(r[col('出荷日')]), at: String(r[col('更新日時')] || r[col('登録日時')]), ltan: String(r[col('台帳の担当者')]) }));
+}
+
+// 読めない伝票は、写真のまま1行にする（マシンNo欄は「伝票写真-日時」）
+function savePhotoRow_(p) {
+  const sh = sheet_('棚在庫'), t = now_();
+  const url = savePhoto_(p.data, p.tan, p.dan);
+  const id = '伝票写真-' + Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyyMMdd-HHmmss');
+  sh.appendRow([t, p.tan, p.name || '', p.dan || '', id, '（伝票写真）', p.memo || '', '', ON, '', '伝票写真', url, '', t]);
+  if (p.tan) saveTan_(p.tan, p.name);
+  return { id: id, photo: url };
 }
 
 /* ---------- 入口 ---------- */
@@ -199,6 +210,7 @@ function doPost(e) {
       return out_({ ok: true, items: enrich_(codes), photo: photo });
     }
     if (p.action === 'save') return out_(Object.assign({ ok: true }, saveItems_(p)));
+    if (p.action === 'photo') return out_(Object.assign({ ok: true }, savePhotoRow_(p)));
     if (p.action === 'out') return out_({ ok: true, n: markOut_(p.mnos) });
     if (p.action === 'info') return out_({ ok: true, items: enrich_(p.mnos || []) });
     return out_({ ok: false, error: '知らない操作です' });

@@ -43,6 +43,7 @@ main{flex:1;min-height:0;overflow-y:auto;padding:0 max(12px,env(safe-area-inset-
 .chips button.on{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
 .dan{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
 .dan button{min-height:44px;font-size:15px;padding:0}
+.dan button small{display:block;font-size:10px;font-weight:400;line-height:1.1}
 .dan button.on{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
 .mode{display:grid;grid-template-columns:1fr 1fr;gap:6px}
 .mode button.on.in{background:var(--ok);border-color:var(--ok)}
@@ -58,6 +59,10 @@ main{flex:1;min-height:0;overflow-y:auto;padding:0 max(12px,env(safe-area-inset-
 .row{display:flex;gap:8px}.row>*{flex:1}
 label.pick{display:flex;align-items:center;justify-content:center;gap:6px;min-height:42px;border-radius:10px;border:1.5px solid var(--line);background:var(--panel);font-weight:700;cursor:pointer;position:relative}
 label.pick input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+details.slip{background:var(--panel);border:1.5px solid var(--line);border-radius:12px;padding:8px 10px}
+details.slip summary{font-weight:700;cursor:pointer;min-height:30px}
+details.slip[open]{display:flex;flex-direction:column;gap:8px}
+.its li .ph{color:var(--accent);font-weight:700}
 .status{border-radius:12px;padding:8px 12px;background:var(--idle);color:#fff;text-align:center;min-height:52px;display:flex;flex-direction:column;justify-content:center}
 .status b{font-size:17px;line-height:1.3}
 .status span{font-size:13px;opacity:.92;word-break:break-all}
@@ -111,7 +116,8 @@ nav button.on{background:var(--accent);color:var(--accent-fg)}
     <input id="nm" class="nm" placeholder="名前（例 平野）" aria-label="担当者名" autocomplete="off">
   </div>
   <div id="tanChips" class="chips"></div>
-  <div class="dan" id="dan" role="group" aria-label="段"></div>
+  <div class="dan" id="dan" role="group" aria-label="段（下から数える）"></div>
+  <p class="note" style="margin-top:-4px">段は<b>下から</b>数えます（いちばん下が1段）。</p>
   <div class="mode" role="group" aria-label="入れる・出す">
     <button id="mIn" class="in on">📥 棚に入れる</button>
     <button id="mOut" class="out">📤 出ていった</button>
@@ -126,6 +132,12 @@ nav button.on{background:var(--accent);color:var(--accent-fg)}
   <div class="row">
     <label class="pick">🖼 携帯のカメラで撮る<input id="aiFile" type="file" accept="image/*" capture="environment"></label>
   </div>
+  <details class="slip">
+    <summary>📄 読めない伝票は、写真のまま残す</summary>
+    <p class="note">バーコードもマシンNoも読めない品物は、伝票や荷札の写真をそのまま棚在庫に入れます。あとで写真を見て確かめられます。</p>
+    <input id="slipMemo" placeholder="ひとこと（例：○○様 ケーブル 3箱）" autocomplete="off">
+    <label class="pick">📄 伝票を撮って残す<input id="slipFile" type="file" accept="image/*" capture="environment"></label>
+  </details>
   <div class="status" id="status"><b>担当番号と段を選んでください</b><span>写真なら棚の品物をまとめて読めます</span></div>
   <form class="manual" id="manual"><input id="manualIn" placeholder="マシンNoを手で入れる（例 KKE-B5729）" autocomplete="off" autocapitalize="characters"><button>追加</button></form>
   <h2 id="pendH">これから登録（0件）</h2>
@@ -203,7 +215,7 @@ const looksTan = s => /^\d{3,6}$/.test(String(s||"").normalize("NFKC").trim()) |
 function whereText(){ return CUR.tan ? `${CUR.tan}${TANS[CUR.tan]?" "+TANS[CUR.tan]:""}　${CUR.dan==="床"?"床置き":CUR.dan+"段目"}` : "担当未選択"; }
 function renderWhere(){
   $("tan").value = CUR.tan; $("nm").value = TANS[CUR.tan] || "";
-  $("dan").innerHTML = DANS.map(d=>`<button data-d="${d}" class="${CUR.dan===d?"on":""}">${d==="床"?"床":d+"段"}</button>`).join("");
+  $("dan").innerHTML = DANS.map(d=>`<button data-d="${d}" class="${CUR.dan===d?"on":""}">${d==="床"?"床":d+"段"}${d==="1"?"<small>いちばん下</small>":""}</button>`).join("");
   const keys = Object.keys(TANS).sort();
   $("tanChips").innerHTML = keys.map(k=>`<button data-k="${esc(k)}" class="${k===CUR.tan?"on":""}">${esc(k)} ${esc(TANS[k]||"")}</button>`).join("");
   $("mIn").classList.toggle("on", CUR.mode==="in"); $("mOut").classList.toggle("on", CUR.mode==="out");
@@ -309,6 +321,24 @@ $("aiFile").onchange = e => {
   const f = e.target.files && e.target.files[0]; if (!f) return;
   const img = new Image();
   img.onload = () => { const k = Math.min(1, 1800/Math.max(img.width,img.height)); const c = document.createElement("canvas"); c.width = Math.round(img.width*k); c.height = Math.round(img.height*k); c.getContext("2d").drawImage(img,0,0,c.width,c.height); URL.revokeObjectURL(img.src); aiRead(c); };
+  img.src = URL.createObjectURL(f); e.target.value = "";
+};
+
+/* ---------- 読めない伝票を写真のまま残す ---------- */
+$("slipFile").onchange = e => {
+  const f = e.target.files && e.target.files[0]; if (!f) return;
+  if (!CUR.tan){ sNG(); status("var(--warn)","先に担当番号を入れてください",""); e.target.value = ""; return; }
+  const img = new Image();
+  img.onload = async () => {
+    const k = Math.min(1, 1800/Math.max(img.width,img.height)); const c = document.createElement("canvas");
+    c.width = Math.round(img.width*k); c.height = Math.round(img.height*k); c.getContext("2d").drawImage(img,0,0,c.width,c.height); URL.revokeObjectURL(img.src);
+    status("var(--idle)","伝票の写真を送っています…","");
+    try{
+      const j = await post({action:"photo", tan:CUR.tan, name:TANS[CUR.tan]||"", dan:CUR.dan, memo:$("slipMemo").value.trim(), data:c.toDataURL("image/jpeg",0.85).split(",")[1]});
+      sOK(); vib(80); status("var(--ok)", `${whereText()} に伝票の写真を残しました`, $("slipMemo").value.trim()); say("伝票の写真を残しました");
+      $("slipMemo").value = "";
+    }catch(err){ sNG(); status("var(--ng)","送れませんでした", String(err.message||err)); }
+  };
   img.src = URL.createObjectURL(f); e.target.value = "";
 };
 
@@ -427,7 +457,7 @@ function renderList(){
   $("listBox").innerHTML = Object.keys(groups).sort().map(k=>{
     const [tn, dn] = k.split("|");
     return `<h2>${esc(tn)} ${esc(TANS[tn]||"")}　${dn==="床"?"床置き":esc(dn)+"段目"}（${groups[k].length}件）</h2><ul class="its">` +
-      groups[k].map(r=>`<li><span><span class="m">${esc(r.mno)}</span><div class="s">${esc([r.kata, r.cust, r.at && ("登録 "+r.at)].filter(Boolean).join("　"))}</div></span><button data-out="${esc(r.mno)}">出た</button></li>`).join("") + `</ul>`;
+      groups[k].map(r=>`<li><span><span class="m">${r.how==="伝票写真" ? "📄 伝票写真" : esc(r.mno)}</span><div class="s">${esc([r.kata, r.cust, r.at && ("登録 "+r.at)].filter(Boolean).join("　"))}${r.photo ? `　<a class="ph" href="${esc(r.photo)}" target="_blank" rel="noopener">写真を見る</a>` : ""}</div></span><button data-out="${esc(r.mno)}">出た</button></li>`).join("") + `</ul>`;
   }).join("");
 }
 $("listReload").onclick = loadList;
