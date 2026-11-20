@@ -90,6 +90,13 @@ h2{font-size:14px;margin:6px 0 0;color:var(--muted)}
 .list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
 .list li{display:flex;gap:10px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:13px}
 .list li.done{opacity:.55}
+.list li.late{background:#3d2f12;border-color:#c77700}
+.list .tag.lt{background:#c77700;color:#fff}
+.its form.fix{display:flex;gap:6px;margin-top:4px}
+.its form.fix input{flex:1;min-width:0;min-height:36px;font-family:var(--f-code)}
+form.addno{display:flex;gap:6px}
+form.addno input{flex:1;min-width:0;font-family:var(--f-code)}
+form.addno button{flex:0 0 auto}
 .list .ck{flex:0 0 26px;height:26px;border-radius:7px;border:2px solid var(--line);display:flex;align-items:center;justify-content:center;font-weight:700}
 .list li.done .ck{background:var(--ok);border-color:var(--ok);color:#fff}
 .list .tag{font-size:11px;border:1px solid var(--line);border-radius:6px;padding:0 5px;margin-left:6px;white-space:nowrap}
@@ -276,20 +283,35 @@ function handle(code, fromCam){
   if (!it){
     beep("ng"); vib([200,80,200]);
     const c = openCardFor("") || newCard("");
-    c.items.push({code, kata:"", qty:"", cust:"", order:"", shiwake:"", day:"", iso:false});
+    c.items.push({code, kata:"", qty:"", cust:"", order:"", shiwake:"", day:"", iso:false, got:Date.now()});
     dbPut(c); render();
     status("var(--ng)", "データにありません", `${code}　「担当者不明」の案内に入れました。担当者番号を入れてください`);
     say("データにありません。担当者不明に入れました");
     return;
   }
   const c = openCardFor(it.tan) || newCard(it.tan);
+  it.got = Date.now();
   c.items.push(it); dbPut(c); render();
+  // 届くはずの日（仕分処理の「1119移送」など）より遅れて届いたか、今見ている日の一覧の外か
+  const exp = expDate(it.shiwake, it.day), late = exp && ymdNum(new Date()) > exp;
+  const note = late ? `遅れて入荷（${dTxt(exp)}の予定）` : "";
   beep(it.iso ? "ok" : "dup"); vib(it.iso ? 150 : [80,60,80]);
-  status(it.iso ? "var(--ok)" : "var(--warn)", `${whoLine(it.tan)}${it.iso ? "" : `（${scName()}の品ではありません）`}`, `${it.code}　${it.kata} ×${it.qty}　${it.cust}${it.shiwake ? "　"+it.shiwake : ""}`);
+  status(it.iso ? "var(--ok)" : "var(--warn)", `${whoLine(it.tan)}${it.iso ? "" : `（${scName()}の品ではありません）`}`, `${it.code}　${it.kata} ×${it.qty}　${it.cust}${it.shiwake ? "　"+it.shiwake : ""}${note ? "　⚠ "+note : ""}`);
   const kind = SCOPE==="iso" ? "移送品" : SCOPE==="all" ? (it.shiwake || "出荷リスト") + "の品" : scName() + "の品";
   if (it.iso){ const n = leftCount(); say(`${sayName(it.tan)}、${kind}です。` + (n ? `残り${n}件` : `${scName()}の品は全部そろいました`)); }
   else say(`${sayName(it.tan)}。${scName()}の品ではありません`);
 }
+/* ---- 日付：仕分処理「1119移送」から届く予定日を出す（出荷日の年を使う） ---- */
+const ymdNum = d => d.getFullYear()*10000 + (d.getMonth()+1)*100 + d.getDate();
+function expDate(shiwake, day){
+  const m = String(shiwake||"").match(/(\d{2})(\d{2})/); if (!m) return 0;
+  const d = String(day||"").replace(/\.0$/,""); let y = d.length === 8 ? +d.slice(0,4) : new Date().getFullYear();
+  if (d.length === 8 && +m[1] < +d.slice(4,6) - 6) y++;
+  return y*10000 + (+m[1])*100 + (+m[2]);
+}
+const dTxt = n => n ? `${Math.floor(n/100)%100}/${n%100}` : "";
+const gotDay = x => x.got ? ymdNum(new Date(x.got)) : 0;
+
 function whoLine(tan){
   if (!tan) return "担当者不明";
   const p = PEOPLE.get(tan);
@@ -302,7 +324,10 @@ function itemLine(x){
   return "・" + [x.code, x.kata && (x.kata + (x.qty !== "" && x.qty != null ? " ×" + x.qty : "")), x.cust, x.order && ("オーダNo " + x.order)].filter(Boolean).join("　");
 }
 function buildText(c, to){
-  const lines = c.items.map(itemLine).join("\n") || (c.photos.length ? "・写真の品物" : "");
+  // 送る文は短く：「得意先 ○件」だけ。細かいことは写真で見てもらう
+  const cnt = new Map();
+  c.items.forEach(x => { const k = String(x.cust||"").replace(/[（(]株[)）]|株式会社/g,"").trim() || "得意先不明"; cnt.set(k, (cnt.get(k)||0) + 1); });
+  const lines = [...cnt].map(([k,n]) => `・${k}　${n}件`).join("\n") || (c.photos.length ? "・写真の品物" : "");
   let t = TEMPLATE.replace(/\{宛名\}/g, to || "ご担当者様").replace(/\{品物\}/g, lines);
   if (c.memo) t += "\n" + c.memo;
   return t;
@@ -369,14 +394,21 @@ function render(){
       ${c.sent ? `<span class="sentmark">送信済み　${esc(c.sent.to)}　${new Date(c.sent.at).getHours()}:${p2(new Date(c.sent.at).getMinutes())}</span>` : ""}
       <ul class="its"></ul>
       <div class="photos"></div>
+      ${c.sent ? "" : `<form class="addno"><input placeholder="マシンNoを手で足す（読めなかったとき）" autocapitalize="characters" autocomplete="off" aria-label="マシンNoを手で足す"><button>足す</button></form>`}
       <input class="memo" placeholder="ひとこと（Teamsの文に足されます）" autocomplete="off" value="${esc(c.memo)}">
       <div class="acts"><label class="pick">📷 写真を足す<input type="file" accept="image/*" capture="environment"></label><button class="del" aria-label="この案内を消す">✕ 消す</button></div>
       <div class="send"></div>`;
     const ul = el.querySelector(".its");
     c.items.forEach((x, i)=>{
       const li = document.createElement("li");
-      li.innerHTML = `<span><span class="m">${esc(x.code)}</span>${x.iso ? "" : ' <span class="s">（移送外）</span>'}<div class="s">${esc([x.kata && x.kata + " ×" + x.qty, x.cust, x.order && "オーダNo " + x.order, x.shiwake].filter(Boolean).join("　") || "データに無い番号")}</div></span><button aria-label="${esc(x.code)}を外す">外す</button>`;
-      li.querySelector("button").onclick = ()=>{ c.items.splice(i,1); afterEdit(c); };
+      li.innerHTML = `<span><span class="m">${esc(x.code)}</span>${x.iso ? "" : ' <span class="s">（移送外）</span>'}<div class="s">${esc([x.kata && x.kata + " ×" + x.qty, x.cust, x.order && "オーダNo " + x.order, x.shiwake].filter(Boolean).join("　") || "データに無い番号")}</div>
+        <form class="fix" hidden><input value="${esc(x.code)}" autocapitalize="characters" autocomplete="off" aria-label="正しいマシンNo"><button>直す</button></form></span>
+        ${c.sent ? "" : `<button class="ed" aria-label="${esc(x.code)}を直す">✎</button>`}<button class="rm" aria-label="${esc(x.code)}を外す">外す</button>`;
+      li.querySelector(".rm").onclick = ()=>{ c.items.splice(i,1); afterEdit(c); };
+      const fx = li.querySelector(".fix"), ed = li.querySelector(".ed");
+      if (ed) ed.onclick = ()=>{ fx.hidden = !fx.hidden; if (!fx.hidden){ const inp = fx.querySelector("input"); inp.focus(); inp.select(); } };
+      fx.onsubmit = e => { e.preventDefault(); const v = fx.querySelector("input").value.trim(); if (!v || norm(v) === norm(x.code)) { fx.hidden = true; return; }
+        c.items.splice(i,1); dbPut(c); fixInto(c, v); };
       ul.append(li);
     });
     const ph = el.querySelector(".photos");
@@ -395,6 +427,8 @@ function render(){
       c.tan = t; dbPut(c); render();
     };
     el.querySelector(".memo").onchange = e => { c.memo = e.target.value.trim(); dbPut(c); };
+    const an = el.querySelector(".addno");
+    if (an) an.onsubmit = e => { e.preventDefault(); const v = an.querySelector("input").value.trim(); if (v) fixInto(c, v); };
     el.querySelector(".acts input").onchange = e => { const f = [...e.target.files]; e.target.value = ""; if (f.length) addPhotos(c, f); };
     el.querySelector(".del").onclick = ()=>{ if (!c.sent && !confirm("この案内を消しますか？")) return; CARDS.delete(c.id); dbDel(c.id); render(); };
     const send = el.querySelector(".send");
@@ -419,6 +453,16 @@ function render(){
     box.append(el);
   }
   renderBadge(); renderList();
+}
+/* ---- 手で入れたマシンNoを照合して、正しい担当者の案内へ。写真だけの案内なら写真も一緒に移す ---- */
+function fixInto(c, code){
+  lastCode = ""; handle(code, false);
+  const target = [...CARDS.values()].find(o => !o.sent && o.items.some(y => norm(y.code) === norm(code) || (mbase(code).length === 8 && mbase(y.code) === mbase(code))));
+  if (target && target !== c && !c.tan && !c.items.length){
+    target.photos.push(...c.photos); if (c.memo) target.memo = [target.memo, c.memo].filter(Boolean).join("　");
+    dbPut(target); CARDS.delete(c.id); dbDel(c.id);
+  } else if (c.items.length || c.photos.length || c.sent) dbPut(c); else { CARDS.delete(c.id); dbDel(c.id); }
+  render();
 }
 function afterEdit(c){ if (!c.items.length && !c.photos.length && !c.sent){ CARDS.delete(c.id); dbDel(c.id); } else dbPut(c); render(); }
 function renderBadge(){
@@ -453,8 +497,8 @@ function renderList(){
   $("dayChips").innerHTML = allDays.map((d,i)=>`<button data-day="${i===0?"latest":d}" class="${(i===0 && LISTDAY==="latest") || LISTDAY===d ? "on" : ""}">${i===0 ? "最新 " : ""}${dayTxt(d)}（${allIso.filter(r=>dayOf(r)===d).length}）</button>`).join("") + (allDays.length > 1 ? `<button data-day="all" class="${LISTDAY==="all"?"on":""}">全部の日（${allIso.length}）</button>` : "");
   const iso = LISTDAY === "all" ? allIso : allIso.filter(r => dayOf(r) === want);
   // 読んだ品物（案内カードに入ったもの）＝届いた。送ったカードのもの＝案内した。後ろの01・011の違いは無視する
-  const got = new Set(), sent = new Set();
-  for (const c of CARDS.values()) for (const x of c.items){ const k = mbase(x.code) || norm(x.code); got.add(k); if (c.sent) sent.add(k); }
+  const got = new Map(), sent = new Set();   // マシンNo → 届いた日
+  for (const c of CARDS.values()) for (const x of c.items){ const k = mbase(x.code) || norm(x.code); got.set(k, gotDay(x) || ymdNum(new Date(c.at))); if (c.sent) sent.add(k); }
   const key = r => mbase(r["マシンNo"]) || norm(r["マシンNo"]);
   const days = [...new Set(iso.map(r=>String(r["出荷日"]||"")))].sort();
   $("listInfo").textContent = DATA.at ? `出荷リスト ${days.map(dayTxt).join("・")} の${SCOPE==="all"?"全部":scName()+"分"}（読み込み ${DATA.at}）` : "設定タブで「シートから読み込む」を押してください";
@@ -462,11 +506,23 @@ function renderList(){
   $("nGot").textContent = iso.filter(r=>got.has(key(r))).length;
   $("nSent").textContent = iso.filter(r=>sent.has(key(r))).length;
   $("nLeft").textContent = iso.filter(r=>!got.has(key(r))).length;
+  // 予定の日に届いた＝✓。予定より後に届いた＝チェックは付けず、帯の色と「○/○に遅れて入荷」
+  const lateOf = r => { const k = key(r), gd = got.get(k), ex = expDate(r["仕分処理"], r["出荷日"]); return gd && ex && gd > ex ? gd : 0; };
   const sorted = iso.slice().sort((a,b)=> (got.has(key(a))?1:0)-(got.has(key(b))?1:0) || tanN(a["担当者"]).localeCompare(tanN(b["担当者"])));
-  $("isoList").innerHTML = sorted.map(r=>{
-    const k = key(r), g = got.has(k), s2 = sent.has(k);
-    return `<li class="${g ? "done" : ""}"><span class="ck">${g ? "✓" : ""}</span><span style="min-width:0;flex:1"><span class="m">${esc(r["マシンNo"])}</span>　${esc(r["形名"]||"")} ×${esc(r["数量"])}${g ? `<span class="tag">${s2 ? "案内済" : "届いた"}</span>` : ""}<div class="s">${esc([whoLine(tanN(r["担当者"])), r["得意先名"], r["仕分処理"]].filter(Boolean).join("　"))}</div></span></li>`;
+  let html = sorted.map(r=>{
+    const k = key(r), g = got.has(k), s2 = sent.has(k), lt = lateOf(r);
+    return `<li class="${g && !lt ? "done" : ""}${lt ? " late" : ""}"><span class="ck">${g && !lt ? "✓" : ""}</span><span style="min-width:0;flex:1"><span class="m">${esc(r["マシンNo"])}</span>　${esc(r["形名"]||"")} ×${esc(r["数量"])}${g && !lt ? `<span class="tag">${s2 ? "案内済" : "届いた"}</span>` : ""}${lt ? `<span class="tag lt">${dTxt(lt)}に遅れて入荷</span>` : ""}<div class="s">${esc([whoLine(tanN(r["担当者"])), r["得意先名"], r["仕分処理"]].filter(Boolean).join("　"))}</div></span></li>`;
   }).join("") || `<li class="note">${scName()}の品物はありません</li>`;
+  // この日の一覧の予定日に届いた、ほかの日の一覧の品物（一覧外）
+  if (LISTDAY !== "all"){
+    const exps = iso.map(r => expDate(r["仕分処理"], r["出荷日"])).filter(Boolean);
+    const ex = exps.length ? exps.sort((a,b)=>exps.filter(v=>v===b).length - exps.filter(v=>v===a).length)[0] : 0;
+    const mine = new Set(iso.map(key));
+    const extra = ex ? (DATA.shukka||[]).filter(inScope).filter(r => !mine.has(key(r)) && got.get(key(r)) === ex) : [];
+    if (extra.length) html += `<li class="note" style="margin-top:6px">一覧外：${dTxt(ex)}に届いた、ほかの日の分（${extra.length}件）</li>` + extra.map(r =>
+      `<li class="late"><span class="ck"></span><span style="min-width:0;flex:1"><span class="m">${esc(r["マシンNo"])}</span>　${esc(r["形名"]||"")} ×${esc(r["数量"])}<span class="tag lt">一覧外（${dayTxt(dayOf(r))}の分）</span><div class="s">${esc([whoLine(tanN(r["担当者"])), r["得意先名"], r["仕分処理"]].filter(Boolean).join("　"))}</div></span></li>`).join("");
+  }
+  $("isoList").innerHTML = html;
 }
 
 $("dayChips").onclick = e => { const b = e.target.closest("button[data-day]"); if (!b) return; LISTDAY = b.dataset.day; save("iso.listday", LISTDAY); renderList(); };
